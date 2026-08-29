@@ -1,13 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Animated as CoreAnimated,
   BackHandler,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
-import Animated, {
+import RNAnimated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
@@ -19,24 +19,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radius, spacing } from "@/src/theme";
 
 const OFFSCREEN = 800;
-const IS_WEB = Platform.OS === "web";
 
-export function BottomSheet({
-  visible,
-  onClose,
-  children,
-  testID,
-}: {
+type SheetProps = {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
   testID?: string;
-}) {
+};
+
+// ---------------------------------------------------------------------------
+// Native (iOS / Android): unchanged Reanimated + keyboard-controller sheet.
+// ---------------------------------------------------------------------------
+function NativeBottomSheet({ visible, onClose, children, testID }: SheetProps) {
   const insets = useSafeAreaInsets();
-  // On web the browser resizes the visual viewport itself when the
-  // keyboard opens (and mobile Safari's implementation of this native
-  // module is unreliable), so we never read `kb` there — see the IS_WEB
-  // branch in panelStyle below.
   const { height: kb } = useReanimatedKeyboardAnimation();
   const progress = useSharedValue(0);
   const [mounted, setMounted] = useState(visible);
@@ -67,16 +62,14 @@ export function BottomSheet({
 
   const panelStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - progress.value) * OFFSCREEN }],
-    marginBottom: IS_WEB ? 0 : kb.value,
+    marginBottom: kb.value,
   }));
 
   if (!mounted) return null;
 
-  // Platform-native feel: iOS uses a rounded top with a grabber,
-  // Android uses a Material-style modal bottom sheet.
-  const panelRadius = Platform.OS === "ios" ? radius.lg : radius.lg;
+  const panelRadius = radius.lg;
 
-  const sheet = (
+  return (
     <View style={StyleSheet.absoluteFill} testID={testID}>
       <AnimatedPressable
         testID={testID ? `${testID}-backdrop` : "sheet-backdrop"}
@@ -84,7 +77,7 @@ export function BottomSheet({
         style={[styles.backdrop, backdropStyle]}
       />
       <View style={styles.anchor}>
-        <Animated.View
+        <RNAnimated.View
           style={[
             styles.panel,
             {
@@ -97,37 +90,102 @@ export function BottomSheet({
         >
           {Platform.OS === "ios" ? <View style={styles.grabber} /> : null}
           {children}
-        </Animated.View>
+        </RNAnimated.View>
       </View>
     </View>
   );
-
-  // Web fallback: react-native-web's ScrollView installs its own touch
-  // responder to detect scroll gestures, and a sheet rendered inline in
-  // the tree can end up sharing that responder chain with an ancestor
-  // ScrollView. In real mobile Safari (not the desktop/headless
-  // emulation used during development) that can swallow the very tap
-  // that opens the sheet, or leave it positioned behind other content.
-  // RN's own <Modal> renders through a top-level portal outside of any
-  // ScrollView, which sidesteps that responder conflict entirely and is
-  // well supported by react-native-web.
-  if (IS_WEB) {
-    return (
-      <Modal
-        visible
-        transparent
-        animationType="none"
-        onRequestClose={onClose}
-      >
-        {sheet}
-      </Modal>
-    );
-  }
-
-  return sheet;
 }
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+// ---------------------------------------------------------------------------
+// Web: a plain, dependency-free bottom sheet.
+//
+// This intentionally does NOT use React Native's <Modal>, Reanimated, or
+// react-native-keyboard-controller. Those are built around native
+// modules/portals whose web shims behave inconsistently across mobile
+// browser engines — on real mobile Safari the sheet could end up
+// positioned off-screen or invisible even though its `visible` state was
+// correctly `true`. A plain CSS `position: fixed` overlay, animated with
+// React Native's core `Animated` API (not Reanimated), is the most
+// predictable way to guarantee the sheet is visible on any web browser.
+// ---------------------------------------------------------------------------
+function WebBottomSheet({ visible, onClose, children, testID }: SheetProps) {
+  const insets = useSafeAreaInsets();
+  const [mounted, setMounted] = useState(visible);
+  const translateY = useRef(new CoreAnimated.Value(OFFSCREEN)).current;
+  const opacity = useRef(new CoreAnimated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      CoreAnimated.parallel([
+        CoreAnimated.timing(translateY, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: false,
+        }),
+        CoreAnimated.timing(opacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    } else {
+      CoreAnimated.parallel([
+        CoreAnimated.timing(translateY, {
+          toValue: OFFSCREEN,
+          duration: 180,
+          useNativeDriver: false,
+        }),
+        CoreAnimated.timing(opacity, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: false,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) setMounted(false);
+      });
+    }
+  }, [visible, translateY, opacity]);
+
+  if (!mounted) return null;
+
+  return (
+    <View style={webStyles.root} testID={testID}>
+      <CoreAnimated.View
+        style={[webStyles.backdrop, { opacity }]}
+        // @ts-ignore — web-only pointer handler, harmless no-op on native
+        onPointerDown={onClose}
+      >
+        <Pressable
+          testID={testID ? `${testID}-backdrop` : "sheet-backdrop"}
+          onPress={onClose}
+          style={StyleSheet.absoluteFill}
+        />
+      </CoreAnimated.View>
+      <CoreAnimated.View
+        style={[
+          webStyles.panel,
+          {
+            paddingBottom: insets.bottom + spacing.md,
+            transform: [{ translateY }],
+          },
+        ]}
+      >
+        {children}
+      </CoreAnimated.View>
+    </View>
+  );
+}
+
+export function BottomSheet(props: SheetProps) {
+  return Platform.OS === "web" ? (
+    <WebBottomSheet {...props} />
+  ) : (
+    <NativeBottomSheet {...props} />
+  );
+}
+
+const AnimatedPressable = RNAnimated.createAnimatedComponent(Pressable);
 
 const styles = StyleSheet.create({
   backdrop: {
@@ -151,5 +209,38 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.border,
     marginBottom: spacing.md,
+  },
+});
+
+const webStyles = StyleSheet.create({
+  root: {
+    position: "fixed" as "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 9999,
+  },
+  backdrop: {
+    position: "fixed" as "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.backdrop,
+  },
+  panel: {
+    position: "fixed" as "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10000,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    maxHeight: "85%",
+    overflow: "scroll",
   },
 });
