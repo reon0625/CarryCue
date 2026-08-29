@@ -4,24 +4,31 @@
 // ───────────
 // One 150-metre Home geofence (EXIT-only for notifications, ENTER for re-arm).
 // State is persisted to AsyncStorage so it survives app termination.
+// The departure-cycle state machine lives in geofencingStateMachine.ts (pure
+// TypeScript, no RN dependencies, fully unit-tested).
 //
 // Armed / disarmed departure cycle
 // ─────────────────────────────────
-//  registerHomeGeofence()  →  armed = true, initialPending = true
+//  registerHomeGeofence()  →  armed = true, registeredAt = now
 //  ENTER (re-arm)          →  armed = true   (no notification)
-//  EXIT (depart)           →  if armed → notify + disarm
-//                             if NOT armed → duplicate/initial, skip
+//  EXIT — grace window     →  stay armed, no notification (iOS initial state)
+//  EXIT — armed, expired   →  notify + disarm
+//  EXIT — disarmed         →  duplicate/ignored
 //
-// Initial-state callback
-// ─────────────────────
-// When startGeofencingAsync is called, iOS/Android may immediately fire one
-// region-state event (ENTER if inside, EXIT if outside).  The `initialPending`
-// flag consumes that first event without treating it as a real departure.
+// Initialization — no initialPending flag
+// ──────────────────────────────────────
+// "Use current location" means the device IS at Home when registerHomeGeofence
+// is called.  We arm immediately without waiting for an initial callback.
+//
+// iOS: may fire an initial EXIT due to GPS boundary jitter. A 10-second grace
+//      window in processExitEvent absorbs it WITHOUT disarming.
+// Android: fires no initial callback. The grace window expires naturally and
+//          the first real EXIT works correctly — no flag to swallow it.
 //
 // Defensive cooldown
 // ──────────────────
-// A secondary 5-minute cooldown prevents notification spam from rapid GPS
-// jitter even if the armed/disarmed cycle somehow fires twice.
+// A secondary 5-minute cooldown (in the state machine) prevents notification
+// spam from rapid GPS jitter even if the armed/disarmed cycle fires twice.
 //
 // Background execution
 // ─────────────────────
@@ -40,14 +47,24 @@ import { Platform } from "react-native";
 
 import { loadStateForBackgroundTask } from "@/src/data/repository";
 import { REMINDER_CHANNEL_ID } from "@/src/services/notifications";
+import {
+  clearRegistrationState,
+  GEO_ARMED_KEY,
+  GEO_LAST_EVENT_KEY,
+  GEO_LAST_NOTIF_KEY,
+  GeoStorageInterface,
+  initializeRegistration,
+  processEnterEvent,
+  processExitEvent,
+} from "@/src/services/geofencingStateMachine";
 
-// ── AsyncStorage keys (private to this module) ───────────────────────────────
+// ── Adapter: wrap AsyncStorage in GeoStorageInterface ────────────────────────
 
-const GEO_ARMED_KEY = "carrycue_geo_armed";
-const GEO_INITIAL_PENDING_KEY = "carrycue_geo_initial_pending";
-const GEO_LAST_EXIT_TS_KEY = "carrycue_geo_last_exit_ts";
-const GEO_LAST_EVENT_KEY = "carrycue_geo_last_event";
-const GEO_LAST_NOTIF_KEY = "carrycue_geo_last_notif";
+const geoStorage: GeoStorageInterface = {
+  getItem: (key) => AsyncStorage.getItem(key),
+  setItem: (key, value) => AsyncStorage.setItem(key, value).then(() => undefined),
+  removeItem: (key) => AsyncStorage.removeItem(key).then(() => undefined),
+};
 
 // ── Public constants ──────────────────────────────────────────────────────────
 
@@ -55,149 +72,25 @@ export const HOME_GEOFENCE_TASK = "CARRYCUE_HOME_GEOFENCE";
 export const HOME_GEOFENCE_REGION_ID = "home";
 export const GEOFENCE_RADIUS_METERS = 150;
 
-const DEFENSIVE_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-
 export const isGeofencingAvailable =
   Platform.OS === "ios" || Platform.OS === "android";
-
-// ── Private helpers: arm state ───────────────────────────────────────────────
-
-async function readArmed(): Promise<boolean> {
-  const v = await AsyncStorage.getItem(GEO_ARMED_KEY);
-  return v === "true";
-}
-
-async function writeArmed(v: boolean): Promise<void> {
-  await AsyncStorage.setItem(GEO_ARMED_KEY, v ? "true" : "false");
-}
-
-async function readInitialPending(): Promise<boolean> {
-  const v = await AsyncStorage.getItem(GEO_INITIAL_PENDING_KEY);
-  return v === "true";
-}
-
-async function writeInitialPending(v: boolean): Promise<void> {
-  await AsyncStorage.setItem(GEO_INITIAL_PENDING_KEY, v ? "true" : "false");
-}
-
-async function readLastExitTs(): Promise<number | null> {
-  const raw = await AsyncStorage.getItem(GEO_LAST_EXIT_TS_KEY);
-  if (!raw) return null;
-  const n = parseInt(raw, 10);
-  return isNaN(n) ? null : n;
-}
 
 // ── Background event handlers ─────────────────────────────────────────────────
 
 async function handleEnterEvent(): Promise<void> {
-  const isPending = await readInitialPending();
-  if (isPending) {
-    // Initial state callback fired as ENTER → user is inside Home.
-    // Arm the cycle and clear the pending flag.
-    await writeInitialPending(false);
-    await writeArmed(true);
-    await AsyncStorage.setItem(
-      GEO_LAST_EVENT_KEY,
-      JSON.stringify({
-        eventType: "enter",
-        timestamp: new Date().toISOString(),
-        notificationSent: false,
-        note: "initial-state",
-      }),
-    );
-    return;
-  }
-  // Normal re-entry: user returned home → re-arm for next departure.
-  await writeArmed(true);
-  await AsyncStorage.setItem(
-    GEO_LAST_EVENT_KEY,
-    JSON.stringify({
-      eventType: "enter",
-      timestamp: new Date().toISOString(),
-      notificationSent: false,
-    }),
-  );
+  await processEnterEvent(geoStorage, Date.now());
 }
 
 async function handleExitEvent(): Promise<void> {
   const now = Date.now();
-  const isPending = await readInitialPending();
-
-  if (isPending) {
-    // Initial state callback fired as EXIT → user was outside Home at
-    // registration time.  Disarm and skip — this is NOT a departure.
-    await writeInitialPending(false);
-    await writeArmed(false);
-    await AsyncStorage.setItem(
-      GEO_LAST_EVENT_KEY,
-      JSON.stringify({
-        eventType: "exit",
-        timestamp: new Date(now).toISOString(),
-        notificationSent: false,
-        note: "initial-state-outside",
-      }),
-    );
-    return;
-  }
-
-  const armed = await readArmed();
-  if (!armed) {
-    // Duplicate EXIT (GPS jitter or already disarmed) — log and skip.
-    await AsyncStorage.setItem(
-      GEO_LAST_EVENT_KEY,
-      JSON.stringify({
-        eventType: "exit",
-        timestamp: new Date(now).toISOString(),
-        notificationSent: false,
-        note: "skipped-disarmed",
-      }),
-    );
-    return;
-  }
-
-  // Defensive cooldown: secondary protection against rapid repeated events.
-  const lastExit = await readLastExitTs();
-  if (lastExit !== null && now - lastExit < DEFENSIVE_COOLDOWN_MS) {
-    // Still within the 5-minute window — disarm but don't notify.
-    await writeArmed(false);
-    await AsyncStorage.setItem(
-      GEO_LAST_EVENT_KEY,
-      JSON.stringify({
-        eventType: "exit",
-        timestamp: new Date(now).toISOString(),
-        notificationSent: false,
-        note: "skipped-defensive-cooldown",
-      }),
-    );
-    return;
-  }
-
-  // ── Valid departure: disarm immediately before any await that could fail ──
-
-  await writeArmed(false);
-  await AsyncStorage.setItem(GEO_LAST_EXIT_TS_KEY, String(now));
-
-  // Read active leavingHome items from persisted state.
-  // Repository handles schema parsing; background task never touches
-  // raw schema internals.
   const loaded = await loadStateForBackgroundTask();
   const activeItems = loaded?.activeItems ?? [];
 
-  // Log the event regardless of whether we notify.
-  await AsyncStorage.setItem(
-    GEO_LAST_EVENT_KEY,
-    JSON.stringify({
-      eventType: "exit",
-      timestamp: new Date(now).toISOString(),
-      notificationSent: activeItems.length > 0,
-      itemCount: activeItems.length,
-    }),
-  );
+  const result = await processExitEvent(geoStorage, activeItems, now);
 
-  // No active items → stay quiet.
-  if (activeItems.length === 0) return;
+  if (!result.shouldNotify) return;
 
-  // Schedule the departure notification.
+  // Valid departure with active items — schedule the notification.
   const title = "Before you go";
   const body =
     activeItems.length === 1
@@ -351,10 +244,13 @@ export async function registerHomeGeofence(coords: {
   // Unregister any existing Home geofence to avoid duplicates.
   await unregisterHomeGeofence();
 
-  // Arm the departure cycle BEFORE startGeofencingAsync so that if the OS
-  // fires the initial-state callback synchronously, the state is already set.
-  await writeArmed(true);
-  await writeInitialPending(true);
+  // Arm immediately: caller ("Use current location") already obtained current
+  // GPS so we KNOW the device is at Home right now.
+  // Record registeredAt so handleExitEvent can absorb a spurious iOS
+  // initial-state EXIT in the grace window — WITHOUT disarming.
+  // On Android, no initial callback fires; the grace window expires
+  // naturally and the first real EXIT notifies correctly.
+  await initializeRegistration(geoStorage, Date.now());
 
   await Location.startGeofencingAsync(HOME_GEOFENCE_TASK, [
     {
@@ -362,7 +258,7 @@ export async function registerHomeGeofence(coords: {
       latitude: coords.latitude,
       longitude: coords.longitude,
       radius: GEOFENCE_RADIUS_METERS,
-      notifyOnEnter: true, // ENTER is used for re-arming.
+      notifyOnEnter: true, // ENTER is used for re-arming after return home.
       notifyOnExit: true,
     },
   ]);
@@ -378,9 +274,8 @@ export async function unregisterHomeGeofence(): Promise<void> {
   } catch {
     // Throws if the task was never started — safe to ignore.
   }
-  // Also disarm and clear initial-pending when geofence is removed.
-  await writeArmed(false);
-  await writeInitialPending(false);
+  // Clear transient state so no stale arm/grace-window lingers.
+  await clearRegistrationState(geoStorage);
 }
 
 export async function isHomeGeofenceRegistered(): Promise<boolean> {
@@ -413,7 +308,8 @@ export async function getGeofencingDiagnostics(homeCoords?: {
 
   const perms = await getGeofencingPermissionStatus();
   const geofenceRegistered = await isHomeGeofenceRegistered();
-  const armed = await readArmed();
+  const armedRaw = await AsyncStorage.getItem(GEO_ARMED_KEY);
+  const armed = armedRaw === "true";
 
   let registeredTasks: string[] = [];
   try {
