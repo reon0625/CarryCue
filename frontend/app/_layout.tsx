@@ -10,6 +10,12 @@ import type { NotificationResponse } from "expo-notifications";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { addResponseListener, ensureAndroidChannel, getLaunchResponse, registerForegroundHandler } from "@/src/services/notifications";
+
+// Import geofencing module at module level so TaskManager.defineTask is
+// called before any component renders — required by Expo TaskManager.
+// Must come AFTER the notification handler registration above, but before
+// any component mounts.
+import "@/src/services/geofencing";
 import { StoreProvider } from "@/src/state/store";
 import { colors } from "@/src/theme";
 

@@ -19,10 +19,22 @@ import {
   scheduleDevTestNotification,
   scheduleImmediateNotification,
 } from "@/src/services/notifications";
+import {
+  GeofencingDiagnostics,
+  getCurrentCoords,
+  getGeofencingDiagnostics,
+  isGeofencingAvailable,
+  registerHomeGeofence,
+  requestGeofencingPermission,
+  simulateHomeExit,
+  unregisterHomeGeofence,
+} from "@/src/services/geofencing";
+import { TextButton } from "@/src/components/TextButton";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 
 type Sheet = null | "notifications" | "location" | "ok";
+type LocationSubState = "explain" | "requesting" | "success" | "foreground-only" | "blocked" | "manage";
 
 // Developer diagnostics display component — only rendered inside __DEV__ block.
 function DiagRow({
@@ -46,11 +58,13 @@ function DiagRow({
 
 function Row({
   label,
+  subtitle,
   onPress,
   accent,
   testID,
 }: {
   label: string;
+  subtitle?: string;
   onPress?: () => void;
   accent?: boolean;
   testID?: string;
@@ -61,7 +75,10 @@ function Row({
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <Text style={[styles.rowLabel, accent && styles.rowAccent]}>{label}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.rowLabel, accent && styles.rowAccent]}>{label}</Text>
+        {subtitle ? <Text style={styles.rowSubtitle}>{subtitle}</Text> : null}
+      </View>
       <Ionicons
         name="chevron-forward"
         size={18}
@@ -74,12 +91,22 @@ function Row({
 export default function Settings() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { entitlement, setEntitlementDev, resetAllDataDev, setNotificationsEnabled } =
-    useStore();
+  const {
+    entitlement, setEntitlementDev, resetAllDataDev, setNotificationsEnabled,
+    locations, items, setHomeLocation, clearHomeLocation,
+  } = useStore();
+
+  // Derived home-location state
+  const home = locations.find((l) => l.isDefault) ?? locations[0];
+  const homeIsSet = home?.latitude != null && home?.longitude != null;
+
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [locationSubState, setLocationSubState] = useState<LocationSubState>("explain");
   const [toast, setToast] = useState("");
   const [diagResult, setDiagResult] = useState<NotificationTestResult | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [geoDiag, setGeoDiag] = useState<GeofencingDiagnostics | null>(null);
+  const [geoDiagLoading, setGeoDiagLoading] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flash = useCallback((msg: string) => {
@@ -184,6 +211,104 @@ export default function Settings() {
     }
   };
 
+  // ── Location / geofencing handlers ─────────────────────────────────────────
+
+  const openLocationSheet = useCallback(() => {
+    setLocationSubState(homeIsSet ? "manage" : "explain");
+    setSheet("location");
+  }, [homeIsSet]);
+
+  const handleUseCurrentLocation = useCallback(async () => {
+    setLocationSubState("requesting");
+    try {
+      const permResult = await requestGeofencingPermission();
+
+      if (permResult === "blocked") {
+        setLocationSubState("blocked");
+        return;
+      }
+      if (permResult === "denied") {
+        setLocationSubState("explain");
+        flash("Location permission needed to set Home");
+        return;
+      }
+
+      // foreground-only or granted — can get GPS coordinates.
+      const coords = await getCurrentCoords();
+      setHomeLocation(coords);
+
+      if (permResult === "granted") {
+        await registerHomeGeofence(coords);
+        setLocationSubState("success");
+      } else {
+        // Foreground-only: coordinates saved but background access needed
+        // for automatic departure detection.
+        setLocationSubState("foreground-only");
+      }
+    } catch (e: unknown) {
+      setLocationSubState("explain");
+      flash(`Could not get location: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, [setHomeLocation, flash]);
+
+  const handleRemoveHomeLocation = useCallback(async () => {
+    clearHomeLocation();
+    await unregisterHomeGeofence();
+    setSheet(null);
+    flash("Home location removed");
+  }, [clearHomeLocation, flash]);
+
+  // ── Geofencing dev diagnostics ──────────────────────────────────────────────
+
+  const handleGeoDiagnostics = useCallback(async () => {
+    if (!__DEV__) return;
+    setGeoDiagLoading(true);
+    try {
+      const diag = await getGeofencingDiagnostics({
+        latitude: home?.latitude,
+        longitude: home?.longitude,
+      });
+      setGeoDiag(diag);
+      flash("Geo diagnostics refreshed");
+    } catch (e: unknown) {
+      flash(`Geo diag error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setGeoDiagLoading(false);
+    }
+  }, [home?.latitude, home?.longitude, flash]);
+
+  const handleSimulateExit = useCallback(async () => {
+    if (!__DEV__) return;
+    if (!isGeofencingAvailable) {
+      flash("Geofencing requires a native device build");
+      return;
+    }
+    setGeoDiagLoading(true);
+    try {
+      const leavingItems = items.filter(
+        (i) => !i.completed && i.trigger.type === "leavingHome",
+      );
+      const result = await simulateHomeExit(
+        leavingItems.map((i) => ({ name: i.name })),
+      );
+      if (result.notificationSent) {
+        flash(`Simulated exit — notification sent (${leavingItems.length} items)`);
+      } else {
+        flash(`Simulated exit — no notification: ${result.reason}`);
+      }
+      // Refresh geo diagnostics to show updated last event.
+      const diag = await getGeofencingDiagnostics({
+        latitude: home?.latitude,
+        longitude: home?.longitude,
+      });
+      setGeoDiag(diag);
+    } catch (e: unknown) {
+      flash(`Simulate error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setGeoDiagLoading(false);
+    }
+  }, [items, home?.latitude, home?.longitude, flash]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScreenHeader title="Settings" showBack />
@@ -199,7 +324,8 @@ export default function Settings() {
           <Row
             testID="settings-home-location"
             label="Home location"
-            onPress={() => setSheet("location")}
+            subtitle={homeIsSet ? "Location set" : "Not set"}
+            onPress={openLocationSheet}
           />
           <View style={styles.sep} />
           <Row
@@ -316,6 +442,71 @@ export default function Settings() {
                 ) : null}
               </View>
             ) : null}
+
+            {/* ── Geofencing dev tools ── */}
+            <View style={styles.sep} />
+            <Row
+              testID="dev-geo-diagnostics"
+              label={geoDiagLoading ? "Checking geo…" : "Geofencing diagnostics"}
+              onPress={handleGeoDiagnostics}
+            />
+            <View style={styles.sep} />
+            <Row
+              testID="dev-simulate-exit"
+              label="Simulate Home Exit"
+              accent
+              onPress={handleSimulateExit}
+            />
+            {geoDiag ? (
+              <View style={diagStyles.block}>
+                <View style={diagStyles.titleRow}>
+                  <Text style={diagStyles.title}>Geofencing Diagnostics</Text>
+                  {geoDiagLoading ? (
+                    <ActivityIndicator size="small" color="#888" />
+                  ) : null}
+                </View>
+                <DiagRow label="fg_perm" value={geoDiag.foregroundPermission}
+                  isError={geoDiag.foregroundPermission !== "granted"} />
+                <DiagRow label="bg_perm" value={geoDiag.backgroundPermission}
+                  isError={geoDiag.backgroundPermission !== "granted"} />
+                <DiagRow label="home_set" value={String(geoDiag.homeSet)} />
+                {geoDiag.latitude != null ? (
+                  <DiagRow label="lat" value={geoDiag.latitude.toFixed(6)} />
+                ) : null}
+                {geoDiag.longitude != null ? (
+                  <DiagRow label="lng" value={geoDiag.longitude.toFixed(6)} />
+                ) : null}
+                <DiagRow label="geofence" value={String(geoDiag.geofenceRegistered)}
+                  isError={!geoDiag.geofenceRegistered} />
+                <DiagRow label="armed" value={String(geoDiag.armed)} />
+                <DiagRow label="tasks"
+                  value={geoDiag.registeredTasks.length > 0 ? geoDiag.registeredTasks.join(", ") : "none"} />
+                {geoDiag.lastEvent ? (
+                  <>
+                    <DiagRow label="last_event" value={geoDiag.lastEvent.eventType +
+                      (geoDiag.lastEvent.simulated ? " (simulated)" : "")} />
+                    <DiagRow label="event_ts" value={geoDiag.lastEvent.timestamp} />
+                    <DiagRow label="notif_sent" value={String(geoDiag.lastEvent.notificationSent)} />
+                    {geoDiag.lastEvent.note ? (
+                      <DiagRow label="note" value={geoDiag.lastEvent.note} />
+                    ) : null}
+                  </>
+                ) : (
+                  <DiagRow label="last_event" value="none" />
+                )}
+                {geoDiag.lastNotificationAt ? (
+                  <DiagRow label="last_notif" value={geoDiag.lastNotificationAt} />
+                ) : null}
+                {(!geoDiag.geofenceRegistered || geoDiag.backgroundPermission !== "granted") ? (
+                  <Pressable
+                    style={diagStyles.settingsBtn}
+                    onPress={() => Linking.openSettings()}
+                  >
+                    <Text style={diagStyles.settingsBtnText}>Open iPhone Settings →</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -341,17 +532,117 @@ export default function Settings() {
 
       <BottomSheet
         visible={sheet === "location"}
-        onClose={() => setSheet(null)}
+        onClose={() => {
+          setSheet(null);
+          // Reset to explain on close so reopening is always fresh
+          // (unless home is already set, then 'manage' is the natural state).
+          setLocationSubState(homeIsSet ? "manage" : "explain");
+        }}
+        testID="location-sheet"
       >
-        <PermissionExplanation
-          testID="location-permission"
-          title="Remind you as you leave"
-          body="CarryCue uses your location to know when you're leaving home and trigger your reminder."
-          note="Your location is used only to trigger your reminder."
-          primaryLabel="Remind me when I leave"
-          onPrimary={() => setSheet("ok")}
-          onDismiss={() => setSheet(null)}
-        />
+        {/* State: explain — CarryCue explanation before requesting permission */}
+        {locationSubState === "explain" ? (
+          <PermissionExplanation
+            testID="location-permission"
+            title="Remind you as you leave"
+            body="CarryCue uses your location to know when you're leaving home and trigger your reminder."
+            note="Your location is used only to trigger your reminder."
+            primaryLabel="Use current location"
+            onPrimary={handleUseCurrentLocation}
+            onDismiss={() => setSheet(null)}
+          />
+        ) : null}
+
+        {/* State: requesting — waiting for OS permission dialog / GPS fix */}
+        {locationSubState === "requesting" ? (
+          <View style={styles.requestingState}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={styles.requestingText}>Getting your location…</Text>
+          </View>
+        ) : null}
+
+        {/* State: success — both permissions granted, Home set, geofence registered */}
+        {locationSubState === "success" ? (
+          <View style={styles.okSheet} testID="location-success-sheet">
+            <View style={styles.okIcon}>
+              <Ionicons name="checkmark" size={30} color={colors.accent} />
+            </View>
+            <Text style={styles.okTitle}>Home location set</Text>
+            <Text style={styles.okBody}>
+              CarryCue will remind you when you leave home.
+            </Text>
+            <View style={styles.okButton}>
+              <PrimaryButton
+                title="Done"
+                onPress={() => setSheet(null)}
+                testID="location-success-done"
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {/* State: foreground-only — location saved but background access needed */}
+        {locationSubState === "foreground-only" ? (
+          <View style={styles.okSheet} testID="location-foreground-only-sheet">
+            <Ionicons name="location-outline" size={40} color={colors.accent} />
+            <Text style={[styles.okTitle, { marginTop: spacing.md }]}>Location saved</Text>
+            <Text style={styles.okBody}>
+              To receive reminders when CarryCue is closed, enable{" "}
+              <Text style={{ fontWeight: font.semibold }}>Always</Text> location access in
+              iPhone Settings → CarryCue → Location.
+            </Text>
+            <View style={[styles.okButton, { gap: spacing.sm }]}>
+              <PrimaryButton
+                title="Open iPhone Settings"
+                onPress={() => { setSheet(null); Linking.openSettings(); }}
+                testID="location-open-settings"
+              />
+              <TextButton
+                title="Later"
+                color={colors.textSecondary}
+                onPress={() => setSheet(null)}
+                testID="location-later"
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {/* State: blocked — permanently denied, must open Settings manually */}
+        {locationSubState === "blocked" ? (
+          <PermissionExplanation
+            testID="location-blocked"
+            title="Location access needed"
+            body="CarryCue needs location access to detect when you leave home. Enable it in iPhone Settings."
+            note="Settings → CarryCue → Location → Always"
+            primaryLabel="Open iPhone Settings"
+            onPrimary={() => { setSheet(null); Linking.openSettings(); }}
+            onDismiss={() => setSheet(null)}
+          />
+        ) : null}
+
+        {/* State: manage — home is already set, show change/remove options */}
+        {locationSubState === "manage" ? (
+          <View testID="location-manage-sheet">
+            <Text style={styles.manageTitle}>Home location</Text>
+            <View style={styles.manageCard}>
+              <Ionicons name="location" size={18} color={colors.accent} />
+              <Text style={styles.manageCardText}>Location set</Text>
+            </View>
+            <PrimaryButton
+              title="Use current location"
+              onPress={() => setLocationSubState("explain")}
+              testID="change-home-location"
+            />
+            <View style={{ marginTop: spacing.sm, alignItems: "center" }}>
+              <TextButton
+                title="Remove home location"
+                color="#EF4444"
+                onPress={handleRemoveHomeLocation}
+                testID="remove-home-location"
+              />
+            </View>
+          </View>
+        ) : null}
       </BottomSheet>
 
       <BottomSheet visible={sheet === "ok"} onClose={() => setSheet(null)}>
@@ -407,6 +698,11 @@ const styles = StyleSheet.create({
     fontSize: type.checklistItem,
     color: colors.textPrimary,
   },
+  rowSubtitle: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
   rowAccent: {
     color: colors.accent,
     fontWeight: font.semibold,
@@ -458,6 +754,38 @@ const styles = StyleSheet.create({
   okButton: {
     alignSelf: "stretch",
     marginTop: spacing.lg,
+  },
+  // Location sheet: requesting state
+  requestingState: {
+    alignItems: "center",
+    paddingVertical: spacing.xl,
+    gap: spacing.md,
+  },
+  requestingText: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+  },
+  // Location sheet: manage state
+  manageTitle: {
+    fontSize: type.contextTitle,
+    fontWeight: font.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
+  },
+  manageCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    marginBottom: spacing.md,
+  },
+  manageCardText: {
+    fontSize: type.secondary,
+    color: colors.accent,
+    fontWeight: font.semibold,
   },
 });
 

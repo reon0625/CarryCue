@@ -85,6 +85,7 @@ export default function Trigger() {
   };
 
   const home = locations[0];
+  const homeIsSet = home?.latitude != null && home?.longitude != null;
   const hasExistingTimeTrigger = item?.trigger.type === "time";
 
   const handleAddLocation = () => {
@@ -305,16 +306,25 @@ export default function Trigger() {
             <View style={styles.locationCard}>
               <View style={styles.locationInfo}>
                 <Text style={styles.locationLabel}>{home?.name ?? "Home"}</Text>
-                <Text style={styles.locationValue}>{home?.address ?? "Shibuya, Tokyo"}</Text>
+                <Text style={styles.locationValue}>
+                  {homeIsSet ? "Location set" : "Not set"}
+                </Text>
               </View>
               <Pressable
                 hitSlop={8}
                 testID="location-change"
-                onPress={() => setLocationsOpen(true)}
+                onPress={() => router.push("/settings")}
               >
-                <Text style={styles.change}>Change</Text>
+                <Text style={styles.change}>
+                  {homeIsSet ? "Change" : "Set in Settings"}
+                </Text>
               </Pressable>
             </View>
+            {!homeIsSet ? (
+              <Text style={styles.locationNote}>
+                Go to Settings to set your Home location and enable departure reminders.
+              </Text>
+            ) : null}
           </View>
         ) : null}
 
@@ -539,6 +549,12 @@ const styles = StyleSheet.create({
     fontSize: type.button,
     fontWeight: font.semibold,
     color: colors.accent,
+  },
+  locationNote: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    lineHeight: 18,
   },
   whereLabel: {
     fontSize: type.contextTitle,

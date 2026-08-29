@@ -78,6 +78,11 @@ type StoreValue = {
 
   setNotificationsEnabled: (enabled: boolean) => void;
   addLocation: (name: string, address: string) => AddResult;
+  // Step 3B: persist real GPS coordinates for the Home geofence.
+  // Updates the default location's lat/lng in place; the caller is
+  // responsible for registering/unregistering the OS geofence separately.
+  setHomeLocation: (coords: { latitude: number; longitude: number }) => void;
+  clearHomeLocation: () => void;
 
   // Developer-only. Gated by __DEV__ at the call sites (Settings dev tools);
   // also no-op internally as a second safety net so they can never surface
@@ -466,6 +471,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return { status: "ok", id: location.id };
   }, []);
 
+  const setHomeLocation = useCallback(
+    (coords: { latitude: number; longitude: number }) => {
+      setState((s) => {
+        if (!s) return s;
+        const locs = s.settings.locations;
+        if (locs.length === 0) return s;
+        // Update the default location (or first location if none marked default).
+        const defaultIdx = locs.findIndex((l) => l.isDefault);
+        const idx = defaultIdx >= 0 ? defaultIdx : 0;
+        const updated = locs.map((loc, i) =>
+          i === idx ? { ...loc, latitude: coords.latitude, longitude: coords.longitude } : loc,
+        );
+        return { ...s, settings: { ...s.settings, locations: updated } };
+      });
+    },
+    [],
+  );
+
+  const clearHomeLocation = useCallback(() => {
+    setState((s) => {
+      if (!s) return s;
+      const updated = s.settings.locations.map((loc) =>
+        loc.isDefault ? { ...loc, latitude: undefined, longitude: undefined } : loc,
+      );
+      return { ...s, settings: { ...s.settings, locations: updated } };
+    });
+  }, []);
+
   const setEntitlementDev = useCallback((tier: EntitlementTier) => {
     if (!__DEV__) return;
     setState((s) => (s ? { ...s, settings: { ...s.settings, entitlement: tier } } : s));
@@ -511,6 +544,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       getRoutine,
       setNotificationsEnabled,
       addLocation,
+      setHomeLocation,
+      clearHomeLocation,
       setEntitlementDev,
       resetAllDataDev,
     }),
@@ -535,6 +570,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       getRoutine,
       setNotificationsEnabled,
       addLocation,
+      setHomeLocation,
+      clearHomeLocation,
       setEntitlementDev,
       resetAllDataDev,
     ],

@@ -3,7 +3,7 @@
 // device. Bump SCHEMA_VERSION and extend `repository.ts`'s migration logic
 // whenever this shape changes.
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // Trigger — when a Carry item should remind the user.
@@ -80,6 +80,10 @@ export type CarryLocation = {
   name: string;
   address: string;
   isDefault: boolean;
+  // Step 3B: real GPS coordinates used for geofencing.
+  // undefined = not yet set by the user (no geofence registered).
+  latitude?: number;
+  longitude?: number;
 };
 
 export type AppSettings = {

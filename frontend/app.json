@@ -10,7 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.carrypreview.rbhkko"
+      "bundleIdentifier": "com.emergent.carrypreview.rbhkko",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Detect when you leave home to trigger reminders.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "CarryCue needs Always location access to remind you when you leave home, even when the app is closed.",
+        "NSLocationAlwaysUsageDescription": "CarryCue reminds you about items when you leave home — this requires Always location access."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -42,6 +47,16 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#FF6B35"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Detect when you leave home to trigger reminders.",
+          "locationAlwaysAndWhenInUsePermission": "CarryCue needs Always location access to remind you when you leave home, even when the app is closed.",
+          "locationAlwaysPermission": "CarryCue reminds you about items when you leave home — this requires Always location access.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
         }
       ]
     ],
