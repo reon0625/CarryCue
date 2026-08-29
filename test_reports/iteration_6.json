@@ -1,0 +1,56 @@
+{
+  "summary": "Step 3A (device-local notifications, web fallback) frontend testing complete. All 10 requested flows verified via Playwright on mobile viewport (375x667). No regressions in Step 2 features. TypeScript (npx tsc --noEmit) clean, no lint errors. No red screen / crash errors observed anywhere, including the web-unsupported DateTimePickerAndroid path.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "trigger.tsx / DateTimePickerAndroid",
+        "issue": "On web, 'Choose date & time' -> tapping the date row calls DateTimePickerAndroid.open() which logs 'DateTimePickerAndroid is not supported on: web' to console. It does NOT crash the screen (silently no-ops), matching the expected/documented web limitation called out in the review request. No fix needed, informational only."
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "notifications.ts cleanly isolates expo-notifications behind isNotificationsAvailable / typed 'unavailable-on-web' error - good separation of concerns, no screen imports expo-notifications directly.",
+    "store.tsx addItemWithTrigger/setItemTrigger correctly enforce duplicate + 5-item limit checks before persisting, and removeItem/restoreItem correctly cancel/reschedule notifications to avoid orphans.",
+    "QuickAddSheet's chooseTimeOrPlace() performs duplicate + limit checks client-side before navigating to /trigger with draft params, exactly as specified - draft is never written to store until Trigger Setup confirms."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "None - used dev 'Reset local data' tool between test scenarios",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Step 3A fully verified on web preview: (1) Home alarm icon (outline/filled) navigates to /trigger?itemId for existing items - works. (2) Quick Add 'Choose time or place' creates a draft only, not persisted until 'Set reminder' confirmed; closing Trigger Setup (X) without confirming correctly leaves Home unaffected - verified. (3) Trigger Setup 'At a time' tab shows Later today/Tomorrow morning/Choose date & time; selecting Choose date & time on web opens the Android date-row Pressable which no-ops gracefully (console warns, no crash) since DateTimePickerAndroid is unsupported on web - this is the expected/documented limitation. (4) 'Set reminder' shows the exact expected toast 'Preview can't schedule real notifications — try this on your phone.' and still persists item+reminder (draft appears on Home with filled alarm icon + time label; editing an existing item updates its icon/label) - verified for both draft and edit paths. (5) Editing an existing time-reminder item pre-fills 'At a time' + 'Choose date & time' with existing time and shows 'Remove reminder'; tapping it clears the reminder (icon reverts to outline) and navigates back - verified. (6) Quick Add duplicate check ('Already on your list' inline, no navigation) and 5-item-limit check (closes sheet + shows Upgrade sheet, no navigation) both verified working before navigation would occur. (7) Home delete -> Undo toast -> Undo restores item WITH its reminder metadata intact (filled icon + time label reappeared) - verified, no crash. (8) Settings dev tools 'Send test notification (10s)' shows honest toast 'Notifications need a real device — not available in this preview' on web, never claims success - verified. (9) Regression: Routines screen, Forgot Something screen, FREE/PRO dev toggle all load and function correctly with no changes from Step 2. All flows tested with fresh reset-local-data state; each browser_automation call spins a fresh browser context so state does not persist between separate tool calls (expected, not a bug) - just something to note for anyone re-running tests in this environment.",
+  "tests_passed": [
+    "Web preview loads without red screen error, onboarding -> Home works",
+    "Home shows alarm outline icon per item next to X button",
+    "Tapping alarm icon navigates to /trigger?itemId=<id>",
+    "Trigger Setup 'At a time' tab shows Later today / Tomorrow morning / Choose date & time",
+    "Choose date & time on web opens Android picker path safely (no crash, console warning only)",
+    "Set reminder with future time shows 'Preview can't schedule real notifications' toast and persists reminder",
+    "Home item updates with filled alarm icon + formatted time label after Set reminder",
+    "Re-opening Trigger Setup for an item with existing time reminder defaults to At a time / Choose date & time pre-filled, shows Remove reminder",
+    "Remove reminder clears reminder, icon reverts to outline, navigates back",
+    "Quick Add draft: typing name + Choose time or place navigates to Trigger Setup WITHOUT creating the item",
+    "Closing Trigger Setup (X) without confirming leaves draft unsaved - item never appears on Home",
+    "Confirming Set reminder for a draft persists the item on Home with correct name + reminder",
+    "Quick Add duplicate check ('Wallet') shows inline 'Already on your list' without navigating",
+    "Quick Add 5-item limit + Choose time or place shows Upgrade sheet instead of navigating",
+    "Home delete (X) shows Undo toast; Undo restores item with reminder icon/label intact",
+    "Settings dev 'Send test notification (10s)' shows honest unavailable-on-web toast, no false success claim",
+    "Routines screen still loads/functions (regression check)",
+    "Forgot Something screen still loads/functions (regression check)",
+    "FREE/PRO dev entitlement toggle still works (regression check)",
+    "npx tsc --noEmit reports zero errors"
+  ]
+}

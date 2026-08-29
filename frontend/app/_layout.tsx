@@ -1,13 +1,15 @@
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect } from "react";
-import { LogBox } from "react-native";
+import { useEffect, useRef } from "react";
+import { LogBox, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import type { NotificationResponse } from "expo-notifications";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { addResponseListener, ensureAndroidChannel, getLaunchResponse } from "@/src/services/notifications";
 import { StoreProvider } from "@/src/state/store";
 import { colors } from "@/src/theme";
 
@@ -23,12 +25,36 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
+  const handledResponseIds = useRef(new Set<string>());
 
   useEffect(() => {
     if (loaded || error) {
       SplashScreen.hideAsync();
     }
   }, [loaded, error]);
+
+  // Step 3A: every CarryCue notification routes to the same place — Home /
+  // Before You Go — there's no per-notification details screen. Covers
+  // cold start (tapped while the app was terminated), background, and the
+  // (rare) case of tapping while already in the foreground.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    ensureAndroidChannel();
+
+    const handleResponse = (response: NotificationResponse) => {
+      const id = response.notification.request.identifier;
+      if (handledResponseIds.current.has(id)) return;
+      handledResponseIds.current.add(id);
+      router.replace("/home");
+    };
+
+    getLaunchResponse().then((response) => {
+      if (response) handleResponse(response);
+    });
+
+    const subscription = addResponseListener(handleResponse);
+    return () => subscription.remove();
+  }, []);
 
   // If the CDN is unreachable we fall through on error rather than wedging
   // the app — icons will tofu, but the app still boots.

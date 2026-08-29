@@ -13,6 +13,7 @@ import { Chip } from "@/src/components/Chip";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { TriggerRow } from "@/src/components/TriggerRow";
+import { normalizeName } from "@/src/data/models";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -30,7 +31,7 @@ export function QuickAddSheet({
   onLimitReached?: () => void;
 }) {
   const router = useRouter();
-  const { addItem } = useStore();
+  const { addItem, items, limits } = useStore();
   const [text, setText] = useState("");
   const [remind, setRemind] = useState<Remind>("leaving");
   const [dupMsg, setDupMsg] = useState("");
@@ -79,9 +80,32 @@ export function QuickAddSheet({
     onClose();
   };
 
+  // Step 3A: this item is NOT persisted here. It stays a draft — carried
+  // as route params — until Trigger Setup's reminder is actually confirmed,
+  // so nothing is saved if the user just backs out of that screen.
   const chooseTimeOrPlace = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const key = normalizeName(trimmed);
+    const isDuplicate = items.some((it) => normalizeName(it.name) === key);
+    if (isDuplicate) {
+      setDupMsg("Already on your list");
+      return;
+    }
+    if (items.length >= limits.maxDepartureItems) {
+      onClose();
+      onLimitReached?.();
+      return;
+    }
     onClose();
-    setTimeout(() => router.push("/trigger"), 220);
+    setTimeout(
+      () =>
+        router.push({
+          pathname: "/trigger",
+          params: { draftName: trimmed, draftSource: "quickAdd" },
+        }),
+      220,
+    );
   };
 
   const hasText = text.trim().length > 0;

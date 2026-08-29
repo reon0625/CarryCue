@@ -82,3 +82,59 @@ widgets, subscriptions, cloud sync, auth, or backend. Mock/local in-memory data 
   "Already on your list"; Home chips show a subtle toast.
 - Verified flows (testing agent iteration_3): Home → Add something → type new item → Add → appears
   on Home; Quick Add → Choose time or place → Trigger Setup. All passing.
+
+## Step 2 (2026-06, refinement pass)
+- Renamed "Frequently Used" → "Suggestions" everywhere (Home, QuickAddSheet).
+- Free limit changed to total items per departure (completed + incomplete both count),
+  centralized in `src/data/limits.ts` (`maxDepartureItems`).
+- Forgot Something always persists the forgotten signal even when the departure is at the
+  limit; shows Saved + limit note + Upgrade prompt instead of silently failing.
+- Home: swipe-to-delete (native, `react-native-gesture-handler` Swipeable) / inline delete
+  button (web) with a 3s Undo toast (`restoreItem` re-inserts at original index); Undo does not
+  touch historical usage stats.
+- Verified by `testing_agent_v4_expo` — 14/14 scenarios passing.
+
+## Step 3A (2026-06) — Real device-local notifications
+- New `src/services/notifications.ts` — the only module importing `expo-notifications`.
+  Safe no-op on web (throws typed `unavailable-on-web`, never fakes success). Exposes
+  permission status/request, `scheduleAt` (cancels+replaces by id), `cancel`,
+  `scheduleDevTestNotification`, and tap-response helpers (cold start + listener).
+- `CarryItem.trigger.config` gained `notificationId` (optional, backward compatible).
+  `TriggerType` dropped the unused `tomorrowMorning` value.
+- Android "Reminders" channel (`reminders`) created at runtime via
+  `setNotificationChannelAsync`, `channelId: 'reminders'` passed on every scheduled call.
+- Permission UX: never requested at launch. User picks a time in Trigger Setup → taps
+  "Set reminder" → CarryCue's own explanation sheet (reused `PermissionExplanation`,
+  "Get reminded before it's too late" / "Remind me" / "Not now") → only then the native OS
+  dialog. Permanently blocked → "Open Settings" sheet (`Linking.openSettings()`), never
+  re-prompts silently.
+- Trigger Setup (`trigger.tsx`) "At a time" is now functional: Later today (+3h), Tomorrow
+  morning (8am), or Choose date & time (iOS inline spinner, Android
+  `DateTimePickerAndroid.open` two-step date→time dialog). "Set reminder" schedules/replaces
+  the OS notification and persists `{type:"time", config:{time, notificationId}}`. Existing
+  time reminders show a "Remove reminder" action. Leaving-home/Arriving-somewhere tabs remain
+  visual-only (Step 3B).
+- Quick Add "Choose time or place" no longer persists the item immediately — it's carried as
+  a draft via route params (`draftName`/`draftSource`) and only written to the store
+  (`addItemWithTrigger`, single atomic write) once "Set reminder" succeeds. Closing without
+  confirming discards the draft.
+- Home: each item shows an alarm icon (outline = none, filled + time label = scheduled) that
+  opens Trigger Setup for that item (`store.setItemTrigger` is the only writer of an existing
+  item's trigger).
+- Deleting an item cancels its scheduled notification (`removeItem`). Undo reschedules a
+  fresh notification only if the persisted time is still in the future; expired reminders are
+  not restored (avoids orphaned/duplicate OS notifications).
+- Dev-only "Send test notification (10s)" row in Settings → Developer tools (`__DEV__` gated,
+  also no-ops safely on web).
+- `_layout.tsx` configures the Android channel on mount and routes any notification tap
+  (cold start via `getLastNotificationResponseAsync` + live listener) to `/home` — no
+  per-notification details screen.
+- Verified by `testing_agent_v4_expo` on web preview (draft flow, permission-explanation copy,
+  honest web-fallback messaging, edit/remove reminder, delete+undo, dev button, no
+  regressions). Real OS notification delivery, native permission dialogs, and iOS/Android
+  pickers require a real device/emulator build — not testable in Expo Go web preview.
+
+## Backlog (future — NOT in Step 3A)
+- Step 3B: real geofencing for Leaving home / Arriving somewhere.
+- P1: backend + auth + cloud sync.
+- P2: RevenueCat/purchases, Siri/App Intents, widgets.

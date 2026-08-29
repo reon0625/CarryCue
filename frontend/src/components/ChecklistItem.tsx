@@ -10,12 +10,19 @@ export function ChecklistItem({
   done,
   onToggle,
   onDelete,
+  reminderLabel,
+  onReminderPress,
   testID,
 }: {
   name: string;
   done: boolean;
   onToggle: () => void;
   onDelete?: () => void;
+  // Step 3A: when set, shows a small filled alarm icon + the scheduled time
+  // under the item name (a live "time" reminder is attached to it).
+  reminderLabel?: string | null;
+  // Opens Trigger Setup for this item so its reminder can be set/changed.
+  onReminderPress?: () => void;
   testID?: string;
 }) {
   const handleToggle = () => {
@@ -36,10 +43,31 @@ export function ChecklistItem({
         <View style={[styles.checkbox, done && styles.checkboxDone]}>
           {done ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
         </View>
-        <Text style={[styles.label, done && styles.labelDone]} numberOfLines={1}>
-          {name}
-        </Text>
+        <View style={styles.textWrap}>
+          <Text style={[styles.label, done && styles.labelDone]} numberOfLines={1}>
+            {name}
+          </Text>
+          {reminderLabel ? (
+            <Text style={styles.reminderText} numberOfLines={1}>
+              {reminderLabel}
+            </Text>
+          ) : null}
+        </View>
       </Pressable>
+      {onReminderPress ? (
+        <Pressable
+          testID={testID ? `${testID}-reminder` : undefined}
+          onPress={onReminderPress}
+          hitSlop={8}
+          style={({ pressed }) => [styles.reminderButton, pressed && styles.pressed]}
+        >
+          <Ionicons
+            name={reminderLabel ? "alarm" : "alarm-outline"}
+            size={19}
+            color={reminderLabel ? colors.accent : colors.disabled}
+          />
+        </Pressable>
+      ) : null}
       {onDelete ? (
         <Pressable
           testID={testID ? `${testID}-delete` : undefined}
@@ -83,8 +111,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent,
     borderColor: colors.accent,
   },
-  label: {
+  textWrap: {
     flex: 1,
+  },
+  label: {
     fontSize: type.checklistItem,
     fontWeight: font.medium,
     color: colors.textPrimary,
@@ -92,6 +122,14 @@ const styles = StyleSheet.create({
   labelDone: {
     color: colors.textSecondary,
     fontWeight: font.regular,
+  },
+  reminderText: {
+    fontSize: type.secondary - 1.5,
+    color: colors.accent,
+    marginTop: 1,
+  },
+  reminderButton: {
+    padding: 8,
   },
   delete: {
     padding: 8,

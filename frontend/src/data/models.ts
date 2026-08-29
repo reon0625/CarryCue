@@ -6,19 +6,26 @@
 export const SCHEMA_VERSION = 2;
 
 // ---------------------------------------------------------------------------
-// Trigger — when a Carry item should remind the user. For Step 2 only
-// `leavingHome` is actually wired to behavior; `time` / `arrivingPlace`
-// carry mock/config data set from the (already existing) Trigger Setup
-// screen and are not yet backed by real notifications or geofencing.
+// Trigger — when a Carry item should remind the user.
+// Step 3A: `time` is wired to a REAL scheduled local notification (see
+// src/services/notifications.ts). `leavingHome` / `arrivingPlace` remain
+// mock/config-only — real geofencing lands in Step 3B.
 // ---------------------------------------------------------------------------
-export type TriggerType = "leavingHome" | "tomorrowMorning" | "time" | "arrivingPlace";
+export type TriggerType = "leavingHome" | "time" | "arrivingPlace";
 
 export type Trigger = {
   type: TriggerType;
-  // Mock/config-only extra data — not wired to real scheduling/geofencing yet.
   config?: {
+    // ISO 8601 instant the "time" trigger is/was scheduled for.
     time?: string;
+    // Mock/config-only — not wired to real geofencing yet (Step 3B).
     placeName?: string;
+    // Identifier returned by expo-notifications for the currently scheduled
+    // OS notification backing a "time" trigger. Undefined means either no
+    // trigger, or a "time" trigger that couldn't get a live OS notification
+    // (e.g. web preview, or permission unavailable) — the intended time is
+    // still remembered so it can be rescheduled later.
+    notificationId?: string;
   };
 };
 

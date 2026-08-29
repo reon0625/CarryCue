@@ -11,6 +11,7 @@ import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { Toast } from "@/src/components/Toast";
+import { isNotificationsAvailable, scheduleDevTestNotification } from "@/src/services/notifications";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 
@@ -67,6 +68,22 @@ export default function Settings() {
     if (tier === entitlement) return;
     setEntitlementDev(tier);
     flash(`Switched to ${tier} (dev)`);
+  };
+
+  // Dev-only: schedules a real local notification ~10s out, to verify
+  // delivery on a real device/emulator quickly. Never shown in production.
+  const handleDevTestNotification = async () => {
+    if (!__DEV__) return;
+    if (!isNotificationsAvailable) {
+      flash("Notifications need a real device — not available in this preview");
+      return;
+    }
+    try {
+      await scheduleDevTestNotification();
+      flash("Test notification scheduled — in ~10s");
+    } catch {
+      flash("Couldn't schedule the test notification");
+    }
   };
 
   return (
@@ -139,6 +156,13 @@ export default function Settings() {
             </View>
             <View style={styles.sep} />
             <Row testID="dev-reset-data" label="Reset local data" accent onPress={handleReset} />
+            <View style={styles.sep} />
+            <Row
+              testID="dev-test-notification"
+              label="Send test notification (10s)"
+              accent
+              onPress={handleDevTestNotification}
+            />
           </View>
         ) : null}
       </ScrollView>

@@ -18,9 +18,11 @@ import {
   EntitlementTier,
   ItemSource,
   Routine,
+  Trigger,
   normalizeName,
 } from "@/src/data/models";
 import { loadState, saveState, wipeAllData } from "@/src/data/repository";
+import { cancel as cancelNotification, scheduleAt } from "@/src/services/notifications";
 
 // Re-exported for screens that only need the shape, not the repository.
 export type { Routine } from "@/src/data/models";
@@ -28,7 +30,7 @@ export type { Routine } from "@/src/data/models";
 const nowIso = () => new Date().toISOString();
 
 export type AddResult =
-  | { status: "ok" }
+  | { status: "ok"; id: string }
   | { status: "duplicate" }
   | { status: "limit"; reason: UpgradeReason };
 
@@ -52,10 +54,18 @@ type StoreValue = {
 
   completeLaunch: () => void;
   addItem: (name: string, source?: ItemSource) => AddResult;
+  // Step 3A: used by the Trigger Setup draft flow so a Quick Add item is
+  // only persisted once its reminder is confirmed, with the trigger set in
+  // the same write (never a bare item followed by a second update).
+  addItemWithTrigger: (name: string, source: ItemSource, trigger: Trigger) => AddResult;
   toggleItem: (id: string) => void;
   removeItem: (id: string) => void;
   restoreItem: (item: CarryItem, atIndex: number) => void;
   recordForgotten: (name: string) => AddResult;
+  // Step 3A: persists a real (or, on web, intended-only) reminder onto an
+  // existing item. Screens must call this rather than mutating items
+  // directly — it's the only writer of `item.trigger`.
+  setItemTrigger: (itemId: string, trigger: Trigger) => void;
 
   newRoutine: () => CreateRoutineResult;
   deleteRoutine: (routineId: string) => void;
@@ -125,8 +135,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const addItem = useCallback(
-    (name: string, source: ItemSource = "quickAdd"): AddResult => {
+  const addItemWithTrigger = useCallback(
+    (name: string, source: ItemSource, trigger: Trigger): AddResult => {
       const trimmed = name.trim();
       if (!trimmed) return { status: "duplicate" };
       const s = stateRef.current;
@@ -145,20 +155,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       const ts = nowIso();
+      const id = uid();
       const newItem: CarryItem = {
-        id: uid(),
+        id,
         name: trimmed,
         completed: false,
         createdAt: ts,
         updatedAt: ts,
-        trigger: { type: "leavingHome" },
+        trigger,
         source,
       };
       setState((prev) => (prev ? { ...prev, items: [newItem, ...prev.items] } : prev));
       touchUsage(trimmed, { added: true });
-      return { status: "ok" };
+      return { status: "ok", id };
     },
     [touchUsage],
+  );
+
+  const addItem = useCallback(
+    (name: string, source: ItemSource = "quickAdd"): AddResult =>
+      addItemWithTrigger(name, source, { type: "leavingHome" }),
+    [addItemWithTrigger],
   );
 
   const toggleItem = useCallback((id: string) => {
@@ -176,18 +193,88 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  // Deleting an item with a live "time" reminder must cancel its scheduled
+  // OS notification — otherwise it would still fire for an item the user no
+  // longer has on their list (an orphan notification).
   const removeItem = useCallback((id: string) => {
+    const target = stateRef.current?.items.find((it) => it.id === id);
+    if (target?.trigger.type === "time" && target.trigger.config?.notificationId) {
+      cancelNotification(target.trigger.config.notificationId).catch(() => {});
+    }
     setState((s) => (s ? { ...s, items: s.items.filter((it) => it.id !== id) } : s));
   }, []);
 
+  // Undo (Home's swipe-delete toast): restores the item. If it had a "time"
+  // reminder that is STILL in the future, reschedules a fresh OS
+  // notification for it (the original was already cancelled on delete) —
+  // otherwise the reminder is treated as expired and is not restored, per
+  // "avoid orphan notifications".
   const restoreItem = useCallback((item: CarryItem, atIndex: number) => {
-    setState((s) => {
-      if (!s) return s;
-      const newItems = [...s.items];
-      const clampedIndex = Math.min(Math.max(0, atIndex), newItems.length);
-      newItems.splice(clampedIndex, 0, item);
-      return { ...s, items: newItems };
-    });
+    const insert = (finalItem: CarryItem) => {
+      setState((s) => {
+        if (!s) return s;
+        // If the same-named item was re-added while the undo toast was open,
+        // don't create a duplicate — the newer one wins.
+        const key = normalizeName(finalItem.name);
+        if (s.items.some((it) => normalizeName(it.name) === key)) return s;
+        const newItems = [...s.items];
+        const clampedIndex = Math.min(Math.max(0, atIndex), newItems.length);
+        newItems.splice(clampedIndex, 0, finalItem);
+        return { ...s, items: newItems };
+      });
+    };
+
+    const hasFutureTimeReminder =
+      item.trigger.type === "time" &&
+      !!item.trigger.config?.time &&
+      new Date(item.trigger.config.time).getTime() > Date.now();
+
+    if (hasFutureTimeReminder && item.trigger.config?.time) {
+      scheduleAt({
+        title: "Before you go",
+        body: `Don't forget ${item.name}.`,
+        date: new Date(item.trigger.config.time),
+      })
+        .then((notificationId) => {
+          insert({
+            ...item,
+            trigger: { ...item.trigger, config: { ...item.trigger.config, notificationId } },
+          });
+        })
+        .catch(() => {
+          // Couldn't reschedule (web preview, permission revoked meanwhile,
+          // etc.) — still restore the item, just without a live notification.
+          insert({
+            ...item,
+            trigger: { ...item.trigger, config: { ...item.trigger.config, notificationId: undefined } },
+          });
+        });
+      return;
+    }
+
+    // No time reminder, or it already expired — restore as-is, clearing any
+    // stale notification id so nothing orphaned lingers on the item.
+    insert(
+      item.trigger.type === "time"
+        ? { ...item, trigger: { ...item.trigger, config: { ...item.trigger.config, notificationId: undefined } } }
+        : item,
+    );
+  }, []);
+
+  // Step 3A: the only writer of `item.trigger`. Cancelling/replacing the OS
+  // notification itself is the caller's responsibility (Trigger Setup) —
+  // this just persists the resulting trigger metadata.
+  const setItemTrigger = useCallback((itemId: string, trigger: Trigger) => {
+    setState((s) =>
+      s
+        ? {
+            ...s,
+            items: s.items.map((it) =>
+              it.id === itemId ? { ...it, trigger, updatedAt: nowIso() } : it,
+            ),
+          }
+        : s,
+    );
   }, []);
 
   // Forgot Something → "Add for next time": ALWAYS persists the forgotten
@@ -376,7 +463,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           }
         : prev,
     );
-    return { status: "ok" };
+    return { status: "ok", id: location.id };
   }, []);
 
   const setEntitlementDev = useCallback((tier: EntitlementTier) => {
@@ -408,10 +495,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       locations: state?.settings.locations ?? [],
       completeLaunch,
       addItem,
+      addItemWithTrigger,
       toggleItem,
       removeItem,
       restoreItem,
       recordForgotten,
+      setItemTrigger,
       newRoutine,
       deleteRoutine,
       addRoutineItem,
@@ -430,10 +519,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       frequentlyUsed,
       completeLaunch,
       addItem,
+      addItemWithTrigger,
       toggleItem,
       removeItem,
       restoreItem,
       recordForgotten,
+      setItemTrigger,
       newRoutine,
       deleteRoutine,
       addRoutineItem,

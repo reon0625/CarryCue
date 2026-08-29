@@ -17,6 +17,7 @@ import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { CarryItem } from "@/src/data/models";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
+import { formatReminderLabel } from "@/src/utils/formatReminder";
 
 export default function Home() {
   const router = useRouter();
@@ -121,6 +122,12 @@ export default function Home() {
             <View style={styles.list}>
               {sorted.map((item) => {
                 const onDelete = () => handleDelete(item);
+                const onReminderPress = () =>
+                  router.push({ pathname: "/trigger", params: { itemId: item.id } });
+                const reminderLabel =
+                  item.trigger.type === "time" && item.trigger.config?.time
+                    ? formatReminderLabel(item.trigger.config.time)
+                    : null;
                 // Web: show inline delete button (swipe not available in browser)
                 if (Platform.OS === "web") {
                   return (
@@ -131,6 +138,8 @@ export default function Home() {
                       done={item.completed}
                       onToggle={() => toggleItem(item.id)}
                       onDelete={onDelete}
+                      reminderLabel={reminderLabel}
+                      onReminderPress={onReminderPress}
                     />
                   );
                 }
@@ -155,6 +164,8 @@ export default function Home() {
                       name={item.name}
                       done={item.completed}
                       onToggle={() => toggleItem(item.id)}
+                      reminderLabel={reminderLabel}
+                      onReminderPress={onReminderPress}
                     />
                   </Swipeable>
                 );
