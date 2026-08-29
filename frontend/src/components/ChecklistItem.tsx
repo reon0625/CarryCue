@@ -34,7 +34,7 @@ export function ChecklistItem({
         style={({ pressed }) => [styles.main, pressed && styles.pressed]}
       >
         <View style={[styles.checkbox, done && styles.checkboxDone]}>
-          {done ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+          {done ? <Ionicons name="checkmark" size={14} color="#FFFFFF" /> : null}
         </View>
         <Text style={[styles.label, done && styles.labelDone]} numberOfLines={1}>
           {name}
@@ -56,7 +56,7 @@ export function ChecklistItem({
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: 54,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -65,16 +65,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 14,
-    paddingVertical: 8,
+    paddingVertical: 7,
   },
   pressed: {
     opacity: 0.6,
   },
   checkbox: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 1.8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.6,
     borderColor: colors.disabled,
     alignItems: "center",
     justifyContent: "center",
@@ -86,12 +86,12 @@ const styles = StyleSheet.create({
   label: {
     flex: 1,
     fontSize: type.checklistItem,
-    fontWeight: font.regular,
+    fontWeight: font.medium,
     color: colors.textPrimary,
   },
   labelDone: {
-    color: colors.disabled,
-    textDecorationLine: "line-through",
+    color: colors.textSecondary,
+    fontWeight: font.regular,
   },
   delete: {
     padding: 8,

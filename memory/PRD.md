@@ -57,3 +57,17 @@ widgets, subscriptions, cloud sync, auth, or backend. Mock/local in-memory data 
 
 ## Next tasks
 - Await next development instruction (step 1 UI complete).
+
+## Refinement pass (2026-06, visual/interaction only)
+- Home made compact & glanceable: smaller checkbox (22), item name dominant (medium), row ~52pt;
+  "BEFORE YOU GO" is 12–13pt medium label; count changed to "N left" (incomplete only); tighter
+  vertical spacing so FREQUENTLY USED is visible without scrolling; no cards around the checklist.
+- Completed items: filled check + lighter secondary text, strikethrough removed; still sink below.
+- Duplicate prevention: `addItem` is case-insensitive + trimmed and returns whether it added;
+  Quick Add shows inline "Already on your list" (sheet stays open), Home chips show a subtle Toast.
+- Forgot Something: reduced typography, smaller/calmer success checkmark, removed "Always remind me"
+  (Done only).
+- Routines: removed card container, calmer plain grouped rows with hairline separators.
+- Onboarding: improved vertical balance (content sits slightly above center, CTA near safe area).
+- All flows re-verified by testing agent (iteration_2): duplicate prevention, incomplete count,
+  completed styling, all-set, forgot success, trigger, persistence — all passing.

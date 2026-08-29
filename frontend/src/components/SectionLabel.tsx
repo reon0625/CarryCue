@@ -22,7 +22,7 @@ export function SectionLabel({
 const styles = StyleSheet.create({
   label: {
     fontSize: type.sectionLabel,
-    fontWeight: font.semibold,
+    fontWeight: font.medium,
     letterSpacing: 0.6,
     color: colors.textSecondary,
   },

@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { TextButton } from "@/src/components/TextButton";
 import { useStore } from "@/src/state/store";
-import { colors, font, radius, spacing, type } from "@/src/theme";
+import { colors, font, spacing, type } from "@/src/theme";
 
 export default function Routines() {
   const router = useRouter();
@@ -78,23 +78,17 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
   },
   group: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    overflow: "hidden",
     marginBottom: spacing.sm,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    minHeight: 64,
+    minHeight: 60,
   },
   pressed: {
-    backgroundColor: colors.background,
+    opacity: 0.6,
   },
   rowText: {
     flex: 1,
@@ -113,6 +107,5 @@ const styles = StyleSheet.create({
   sep: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
-    marginLeft: spacing.md,
   },
 });

@@ -30,12 +30,14 @@ export function QuickAddSheet({
   const { addItem } = useStore();
   const [text, setText] = useState("");
   const [remind, setRemind] = useState<Remind>("leaving");
+  const [dupMsg, setDupMsg] = useState("");
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (visible) {
       setText("");
       setRemind("leaving");
+      setDupMsg("");
       const t = setTimeout(() => inputRef.current?.focus(), 300);
       return () => clearTimeout(t);
     }
@@ -44,12 +46,20 @@ export function QuickAddSheet({
   const save = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    addItem(trimmed);
+    const added = addItem(trimmed);
+    if (!added) {
+      setDupMsg("Already on your list");
+      return;
+    }
     onClose();
   };
 
   const addFrequent = (name: string) => {
-    addItem(name);
+    const added = addItem(name);
+    if (!added) {
+      setDupMsg("Already on your list");
+      return;
+    }
     onClose();
   };
 
@@ -67,7 +77,10 @@ export function QuickAddSheet({
         ref={inputRef}
         testID="quick-add-input"
         value={text}
-        onChangeText={setText}
+        onChangeText={(t) => {
+          setText(t);
+          if (dupMsg) setDupMsg("");
+        }}
         placeholder="Charger"
         placeholderTextColor={colors.disabled}
         style={styles.input}
@@ -75,6 +88,11 @@ export function QuickAddSheet({
         onSubmitEditing={save}
         autoCapitalize="sentences"
       />
+      {dupMsg ? (
+        <Text style={styles.dupMsg} testID="quick-add-dup-message">
+          {dupMsg}
+        </Text>
+      ) : null}
 
       {hasText ? (
         <View style={styles.section}>
@@ -143,11 +161,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   input: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.textPrimary,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  dupMsg: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
   },
   section: {
     marginTop: spacing.lg,

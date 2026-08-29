@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,6 +11,7 @@ import { QuickAddSheet } from "@/src/components/QuickAddSheet";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { TextButton } from "@/src/components/TextButton";
+import { Toast } from "@/src/components/Toast";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -19,6 +20,22 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const { items, frequentlyUsed, leaveTime, toggleItem, addItem } = useStore();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flash = useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 1600);
+  }, []);
+
+  const addFromChip = useCallback(
+    (name: string) => {
+      const added = addItem(name);
+      if (!added) flash("Already on your list");
+    },
+    [addItem, flash],
+  );
 
   const sorted = useMemo(() => {
     const incomplete = items.filter((i) => !i.done);
@@ -67,9 +84,7 @@ export default function Home() {
             ) : (
               <View style={styles.context}>
                 <Text style={styles.contextTitle}>Leaving around {leaveTime}</Text>
-                <Text style={styles.contextSub}>
-                  {remaining} {remaining === 1 ? "thing" : "things"}
-                </Text>
+                <Text style={styles.contextSub}>{remaining} left</Text>
               </View>
             )}
 
@@ -104,7 +119,7 @@ export default function Home() {
                     key={f}
                     testID={`frequent-chip-${f}`}
                     label={f}
-                    onPress={() => addItem(f)}
+                    onPress={() => addFromChip(f)}
                   />
                 ))}
               </ScrollView>
@@ -112,6 +127,8 @@ export default function Home() {
           </>
         )}
       </ScrollView>
+
+      <Toast message={toast} visible={!!toast} testID="home-toast" />
 
       <QuickAddSheet
         visible={quickAddOpen}
@@ -131,11 +148,11 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.sm,
   },
   context: {
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
   contextTitle: {
     fontSize: type.contextTitle,
@@ -148,8 +165,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   allSet: {
-    marginTop: spacing.md,
-    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
   },
   allSetRow: {
     flexDirection: "row",
@@ -167,15 +184,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   list: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
     marginBottom: spacing.xs,
   },
   frequentSection: {
-    marginTop: spacing.xl,
+    marginTop: spacing.lg,
   },
   chips: {
     gap: spacing.sm,
-    paddingTop: spacing.md,
+    paddingTop: spacing.sm,
     paddingRight: spacing.md,
   },
 });

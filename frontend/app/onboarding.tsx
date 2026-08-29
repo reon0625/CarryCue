@@ -50,6 +50,7 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     justifyContent: "center",
+    paddingBottom: 72,
   },
   brand: {
     fontSize: 30,

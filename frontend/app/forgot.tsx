@@ -23,7 +23,6 @@ export default function Forgot() {
   const { addFrequent, addItem } = useStore();
   const [text, setText] = useState("");
   const [saved, setSaved] = useState(false);
-  const [always, setAlways] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -62,26 +61,10 @@ export default function Forgot() {
         {saved ? (
           <View style={styles.savedWrap} testID="forgot-saved-state">
             <View style={styles.savedIcon}>
-              <Ionicons name="checkmark" size={30} color={colors.accent} />
+              <Ionicons name="checkmark" size={22} color={colors.accent} />
             </View>
             <Text style={styles.savedTitle}>Saved</Text>
             <Text style={styles.savedBody}>We&apos;ll remind you next time.</Text>
-
-            <Pressable
-              testID="forgot-always-remind"
-              onPress={() => setAlways((a) => !a)}
-              style={({ pressed }) => [
-                styles.alwaysRow,
-                pressed && styles.pressed,
-              ]}
-            >
-              <View style={[styles.checkbox, always && styles.checkboxOn]}>
-                {always ? (
-                  <Ionicons name="checkmark" size={15} color="#FFFFFF" />
-                ) : null}
-              </View>
-              <Text style={styles.alwaysText}>Always remind me</Text>
-            </Pressable>
 
             <View style={styles.doneButton}>
               <PrimaryButton
@@ -160,7 +143,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   input: {
-    fontSize: 20,
+    fontSize: 18,
     color: colors.textPrimary,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
@@ -176,46 +159,23 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xl,
   },
   savedIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.accentSoft,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: spacing.md,
   },
   savedTitle: {
-    fontSize: type.navTitle,
-    fontWeight: font.bold,
+    fontSize: type.contextTitle + 1,
+    fontWeight: font.semibold,
     color: colors.textPrimary,
   },
   savedBody: {
     fontSize: type.secondary + 1,
     color: colors.textSecondary,
     marginTop: spacing.xs,
-  },
-  alwaysRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginTop: spacing.xl,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 1.8,
-    borderColor: colors.disabled,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxOn: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  alwaysText: {
-    fontSize: type.checklistItem,
-    color: colors.textPrimary,
   },
   doneButton: {
     alignSelf: "stretch",

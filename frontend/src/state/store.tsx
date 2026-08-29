@@ -44,7 +44,7 @@ const initialState: PersistShape = {
 type StoreValue = PersistShape & {
   hydrated: boolean;
   completeLaunch: () => void;
-  addItem: (name: string) => void;
+  addItem: (name: string) => boolean;
   toggleItem: (id: string) => void;
   removeItem: (id: string) => void;
   addFrequent: (name: string) => void;
@@ -63,6 +63,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<PersistShape>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const loadedRef = useRef(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     (async () => {
@@ -92,11 +94,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const addItem = useCallback((name: string) => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed) return false;
+    const exists = stateRef.current.items.some(
+      (it) => it.name.trim().toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (exists) return false;
     setState((s) => ({
       ...s,
       items: [{ id: uid(), name: trimmed, done: false }, ...s.items],
     }));
+    return true;
   }, []);
 
   const toggleItem = useCallback((id: string) => {
