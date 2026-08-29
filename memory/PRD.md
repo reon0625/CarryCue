@@ -71,3 +71,14 @@ widgets, subscriptions, cloud sync, auth, or backend. Mock/local in-memory data 
 - Onboarding: improved vertical balance (content sits slightly above center, CTA near safe area).
 - All flows re-verified by testing agent (iteration_2): duplicate prevention, incomplete count,
   completed styling, all-set, forgot success, trigger, persistence — all passing.
+
+## Step 1 bug fixes (2026-06)
+- Quick Add reliability: `add-something-button` always opens the sheet; input now uses `autoFocus`
+  + a delayed `ref.focus()` after the open animation so it focuses and raises the keyboard on
+  native every time (verified across open/close cycles).
+- Duplicate prevention hardened: `addItem` blocks duplicates case-insensitively + trimmed across
+  BOTH completed and incomplete items; added `dedupeItems` on hydration to heal any stale persisted
+  duplicates (e.g., Umbrella/Student ID left over from earlier runs). Quick Add shows inline
+  "Already on your list"; Home chips show a subtle toast.
+- Verified flows (testing agent iteration_3): Home → Add something → type new item → Add → appears
+  on Home; Quick Add → Choose time or place → Trigger Setup. All passing.

@@ -1,0 +1,29 @@
+{
+  "summary": "Third-pass targeted bug-fix verification of CarryCue (Expo web preview, 390x844 mobile viewport, UI-only). All 8 requested scenarios PASSED. BUG 1 (Add something opens Quick Add + autofocus): tapping add-something-button opens quick-add-sheet across 3 open/close cycles; document.activeElement is quick-add-input (data-testid confirms) every time after the 350ms focus delay; closing via quick-add-sheet-backdrop unmounts the sheet and reopening consistently reacquires focus. BUG 2 incomplete (' charger ' lowercase+whitespace): quick-add-dup-message reads 'Already on your list', sheet stays open, exactly 1 checklist-item-Charger remains. BUG 2 completed Wallet (toggled done first, then 'Wallet'): same 'Already on your list' inline message, sheet stays open, exactly 1 checklist-item-Wallet — confirms duplicate check spans both incomplete and completed items. Home frequent-chip Charger duplicate: home-toast shows 'Already on your list', Charger count remains 1. NEW unique 'Passport' flow: sheet closes on save, exactly 1 checklist-item-Passport rendered, 'N left' incremented 3→4 (Wallet was completed earlier, so decrement+increment nets +1 incomplete). Trigger flow: typing 'Notebook' then tapping remind-choose closes Quick Add and navigates to /trigger where trigger-leaving/trigger-time/trigger-arriving are all visible. Regression: no duplicate rows on fresh load; dedupeItems on hydration works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop (react-native-web deprecation)", "issue": "Non-blocking console warning 'props.pointerEvents is deprecated. Use style.pointerEvents' persists from iterations 1 & 2. Likely Toast.tsx line 35. Reference: /app/frontend/src/components/Toast.tsx:35"}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional cleanup: replace pointerEvents=\"none\" prop with style={{ pointerEvents: 'none' }} in Toast.tsx (line 35) to silence RN-web deprecation warning. Not blocking."
+  ],
+  "critical_code_review_comments": [
+    "QuickAddSheet.tsx: useEffect on `visible` resets text/remind/dupMsg and schedules setTimeout(350ms)→inputRef.current?.focus(); combined with autoFocus prop, guarantees focus even across remounts. Verified working on web (activeElement === input).",
+    "store.tsx addItem: trimmed + case-insensitive Set check via stateRef.current.items covers both done and !done items uniformly — matches spec.",
+    "store.tsx hydration: dedupeItems collapses persisted duplicates for both items and routines[].items — heals stale state on load. Verified on fresh reload.",
+    "BottomSheet.tsx: mounted state + withTiming callback ensures clean unmount on close so re-open triggers the visible→true effect reliably (root cause fix for BUG 1)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "Cleared localStorage once to start from default seed (Wallet, Student ID, Charger, Umbrella).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both STEP 1 bugs are fixed and verified end-to-end. Focus test-IDs: add-something-button, quick-add-sheet, quick-add-sheet-backdrop, quick-add-input, quick-add-save, quick-add-dup-message, checklist-item-<Name>, frequent-chip-<Name>, home-toast, remind-choose, trigger-leaving/time/arriving. Default seed items are Wallet/Student ID/Charger/Umbrella — use a brand-new name like Passport/Notebook for successful-add tests. Focus verification on web must use document.activeElement (no on-screen keyboard on web). Only outstanding cosmetic finding is the pointerEvents deprecation warning.",
+  "rca_of_issue": "N/A — both reported bugs (autofocus/reopen reliability and duplicate prevention across done/undone) are resolved by (a) delayed ref.focus() after 350ms in QuickAddSheet + autoFocus, and (b) case-insensitive trimmed dedupe in store.addItem plus dedupeItems on hydration."
+}

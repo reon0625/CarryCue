@@ -38,7 +38,10 @@ export function QuickAddSheet({
       setText("");
       setRemind("leaving");
       setDupMsg("");
-      const t = setTimeout(() => inputRef.current?.focus(), 300);
+      // Focus after the open animation so the native keyboard reliably
+      // raises on both iOS and Android (autoFocus alone can miss inside an
+      // animated/remounting view).
+      const t = setTimeout(() => inputRef.current?.focus(), 350);
       return () => clearTimeout(t);
     }
   }, [visible]);
@@ -76,6 +79,8 @@ export function QuickAddSheet({
       <TextInput
         ref={inputRef}
         testID="quick-add-input"
+        autoFocus
+        showSoftInputOnFocus
         value={text}
         onChangeText={(t) => {
           setText(t);

@@ -29,6 +29,21 @@ const uid = () => `${Date.now().toString(36)}-${(counter++).toString(36)}`;
 const mkItems = (names: string[]): Item[] =>
   names.map((n) => ({ id: uid(), name: n, done: false }));
 
+// Collapse items that share the same name (case-insensitive, trimmed),
+// keeping the first occurrence. Used to heal any persisted state that was
+// written before duplicate-prevention existed.
+const dedupeItems = (items: Item[]): Item[] => {
+  const seen = new Set<string>();
+  const out: Item[] = [];
+  for (const it of items) {
+    const key = it.name.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  return out;
+};
+
 const initialState: PersistShape = {
   hasLaunched: false,
   leaveTime: "8:30",
@@ -72,7 +87,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (raw) {
         try {
           const saved = JSON.parse(raw) as PersistShape;
-          setState({ ...initialState, ...saved });
+          const merged = { ...initialState, ...saved };
+          // Heal any duplicates that were persisted before dedup existed.
+          merged.items = dedupeItems(merged.items ?? []);
+          merged.routines = (merged.routines ?? []).map((r) => ({
+            ...r,
+            items: dedupeItems(r.items ?? []),
+          }));
+          setState(merged);
         } catch {
           // corrupt payload — fall back to initial state
         }
