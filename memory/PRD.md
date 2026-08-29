@@ -126,6 +126,23 @@ widgets, subscriptions, cloud sync, auth, or backend. Mock/local in-memory data 
   not restored (avoids orphaned/duplicate OS notifications).
 - Dev-only "Send test notification (10s)" row in Settings → Developer tools (`__DEV__` gated,
   also no-ops safely on web).
+- **Step 3A debug fix (2026-08)**: Root cause of non-delivery identified — `scheduleDevTestNotification`
+  previously called `scheduleNotificationAsync` without checking permissions first. iOS returns a valid
+  ID even when permission is `undetermined`/`denied`, but silently drops the notification. Fixed:
+  - All three dev-test functions (`scheduleDevTestNotification`, `scheduleImmediateNotification`,
+    `getNotificationDiagnostics`) now check `getPermissionStatus()` first and surface a human-readable
+    error when the OS cannot deliver.
+  - `scheduleDevTestNotification` and `scheduleImmediateNotification` call
+    `getAllScheduledNotificationsAsync()` after scheduling and confirm the ID is present in the OS queue.
+    If the ID is missing, a distinct error `"…NOT in OS pending queue"` is surfaced.
+  - `registerForegroundHandler()` exported from `notifications.ts` and called explicitly at module level
+    in `_layout.tsx` (outside any component), guaranteeing handler registration before first render.
+  - Settings dev section: four new actions — "Notification diagnostics" (pure status), "Request
+    notification permission" (direct OS prompt), "Send notification now (1s)" (presentation test),
+    "Schedule notification (10s)" (delayed delivery test). All four populate a live
+    `NotificationDiagnostics` panel showing: platform, permission, canAskAgain, pending count, notif_id,
+    trigger JSON, and error (highlighted in red). Panel includes "Open iPhone Settings →" link when
+    permission is not granted.
 - `_layout.tsx` configures the Android channel on mount and routes any notification tap
   (cold start via `getLastNotificationResponseAsync` + live listener) to `/home` — no
   per-notification details screen.

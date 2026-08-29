@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BottomSheet } from "@/src/components/BottomSheet";
@@ -11,11 +11,38 @@ import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { Toast } from "@/src/components/Toast";
-import { isNotificationsAvailable, scheduleDevTestNotification } from "@/src/services/notifications";
+import {
+  getNotificationDiagnostics,
+  isNotificationsAvailable,
+  NotificationTestResult,
+  requestPermission,
+  scheduleDevTestNotification,
+  scheduleImmediateNotification,
+} from "@/src/services/notifications";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 
 type Sheet = null | "notifications" | "location" | "ok";
+
+// Developer diagnostics display component — only rendered inside __DEV__ block.
+function DiagRow({
+  label,
+  value,
+  isError,
+}: {
+  label: string;
+  value: string;
+  isError?: boolean;
+}) {
+  return (
+    <View style={diagStyles.row}>
+      <Text style={diagStyles.label}>{label}</Text>
+      <Text style={[diagStyles.value, isError && diagStyles.valueError]} selectable>
+        {value}
+      </Text>
+    </View>
+  );
+}
 
 function Row({
   label,
@@ -51,6 +78,8 @@ export default function Settings() {
     useStore();
   const [sheet, setSheet] = useState<Sheet>(null);
   const [toast, setToast] = useState("");
+  const [diagResult, setDiagResult] = useState<NotificationTestResult | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flash = useCallback((msg: string) => {
@@ -70,19 +99,88 @@ export default function Settings() {
     flash(`Switched to ${tier} (dev)`);
   };
 
-  // Dev-only: schedules a real local notification ~10s out, to verify
-  // delivery on a real device/emulator quickly. Never shown in production.
+  // Dev-only: pure diagnostics check — no scheduling.
+  const handleDevDiagnostics = async () => {
+    if (!__DEV__) return;
+    setDiagLoading(true);
+    try {
+      const result = await getNotificationDiagnostics();
+      setDiagResult(result);
+      flash("Diagnostics refreshed");
+    } catch (e: unknown) {
+      flash(`Diagnostics error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  // Dev-only: request OS permission directly (useful when status is undetermined).
+  const handleDevRequestPermission = async () => {
+    if (!__DEV__) return;
+    if (!isNotificationsAvailable) {
+      flash("Notifications require a native device build");
+      return;
+    }
+    setDiagLoading(true);
+    try {
+      const result = await requestPermission();
+      setDiagResult({
+        platform: "ios/android",
+        permissionStatus: result.status,
+        canAskAgain: result.canAskAgain,
+        pendingCount: 0,
+      });
+      flash(`Permission: ${result.status}`);
+    } catch (e: unknown) {
+      flash(`Permission error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  // Dev-only: 1-second notification — tests PRESENTATION separately from scheduling.
+  const handleDevNotificationNow = async () => {
+    if (!__DEV__) return;
+    if (!isNotificationsAvailable) {
+      flash("Notifications require a native device build");
+      return;
+    }
+    setDiagLoading(true);
+    try {
+      const result = await scheduleImmediateNotification();
+      setDiagResult(result);
+      if (result.error) {
+        flash(`BLOCKED: ${result.error}`);
+      } else {
+        flash(`Sending in ~1s — ${result.pendingCount} pending`);
+      }
+    } catch (e: unknown) {
+      flash(`Exception: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
+  // Dev-only: 10-second notification — tests delayed scheduling + OS queue verification.
   const handleDevTestNotification = async () => {
     if (!__DEV__) return;
     if (!isNotificationsAvailable) {
-      flash("Notifications need a real device — not available in this preview");
+      flash("Notifications require a native device build");
       return;
     }
+    setDiagLoading(true);
     try {
-      await scheduleDevTestNotification();
-      flash("Test notification scheduled — in ~10s");
-    } catch {
-      flash("Couldn't schedule the test notification");
+      const result = await scheduleDevTestNotification();
+      setDiagResult(result);
+      if (result.error) {
+        flash(`BLOCKED: ${result.error}`);
+      } else {
+        flash(`Scheduled — ${result.pendingCount} pending in OS queue`);
+      }
+    } catch (e: unknown) {
+      flash(`Exception: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDiagLoading(false);
     }
   };
 
@@ -158,11 +256,66 @@ export default function Settings() {
             <Row testID="dev-reset-data" label="Reset local data" accent onPress={handleReset} />
             <View style={styles.sep} />
             <Row
+              testID="dev-diagnostics"
+              label={diagLoading ? "Checking…" : "Notification diagnostics"}
+              onPress={handleDevDiagnostics}
+            />
+            <View style={styles.sep} />
+            <Row
+              testID="dev-request-permission"
+              label="Request notification permission"
+              onPress={handleDevRequestPermission}
+            />
+            <View style={styles.sep} />
+            <Row
+              testID="dev-notify-now"
+              label="Send notification now (1s)"
+              accent
+              onPress={handleDevNotificationNow}
+            />
+            <View style={styles.sep} />
+            <Row
               testID="dev-test-notification"
-              label="Send test notification (10s)"
+              label="Schedule notification (10s)"
               accent
               onPress={handleDevTestNotification}
             />
+            {diagResult ? (
+              <View style={diagStyles.block}>
+                <View style={diagStyles.titleRow}>
+                  <Text style={diagStyles.title}>Notification Diagnostics</Text>
+                  {diagLoading ? <ActivityIndicator size="small" color="#888" /> : null}
+                </View>
+                <DiagRow label="platform" value={diagResult.platform} />
+                <DiagRow
+                  label="permission"
+                  value={diagResult.permissionStatus}
+                  isError={diagResult.permissionStatus !== "granted"}
+                />
+                <DiagRow label="canAskAgain" value={String(diagResult.canAskAgain)} />
+                <DiagRow label="pending" value={String(diagResult.pendingCount)} />
+                {diagResult.notificationId ? (
+                  <DiagRow label="notif_id" value={diagResult.notificationId} />
+                ) : null}
+                {diagResult.pendingTrigger != null ? (
+                  <DiagRow
+                    label="trigger"
+                    value={JSON.stringify(diagResult.pendingTrigger)}
+                  />
+                ) : null}
+                {diagResult.error ? (
+                  <DiagRow label="ERROR" value={diagResult.error} isError />
+                ) : null}
+                {diagResult.permissionStatus !== "granted" ? (
+                  <Pressable
+                    style={diagStyles.settingsBtn}
+                    onPress={() => Linking.openSettings()}
+                  >
+                    <Text style={diagStyles.settingsBtnText}>Open iPhone Settings →</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -305,5 +458,64 @@ const styles = StyleSheet.create({
   okButton: {
     alignSelf: "stretch",
     marginTop: spacing.lg,
+  },
+});
+
+// Separate StyleSheet for the diagnostic panel so it reads clearly.
+const diagStyles = StyleSheet.create({
+  block: {
+    margin: spacing.md,
+    marginTop: 0,
+    padding: spacing.md,
+    backgroundColor: "#111827",
+    borderRadius: radius.sm,
+    gap: 4,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+  },
+  title: {
+    fontSize: 10,
+    fontWeight: "700" as const,
+    color: "#6b7280",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  row: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  label: {
+    fontSize: 12,
+    color: "#6b7280",
+    minWidth: 88,
+    ...Platform.select({ ios: { fontFamily: "Menlo" }, android: { fontFamily: "monospace" } }),
+  },
+  value: {
+    fontSize: 12,
+    color: "#e5e7eb",
+    flex: 1,
+    flexWrap: "wrap",
+    ...Platform.select({ ios: { fontFamily: "Menlo" }, android: { fontFamily: "monospace" } }),
+  },
+  valueError: {
+    color: "#f87171",
+  },
+  settingsBtn: {
+    marginTop: spacing.sm,
+    alignSelf: "flex-start",
+    backgroundColor: "#1f2937",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.sm,
+  },
+  settingsBtnText: {
+    fontSize: 13,
+    color: "#60a5fa",
+    fontWeight: "600" as const,
   },
 });

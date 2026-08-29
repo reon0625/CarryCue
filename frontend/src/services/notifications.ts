@@ -22,9 +22,14 @@ export type PermissionStatus = {
   canAskAgain: boolean;
 };
 
-// Foreground display behavior — registered once at module load, before any
-// notification can arrive while the app is open.
-if (isNotificationsAvailable) {
+// Foreground display behavior.
+//
+// MUST be called at module level in _layout.tsx BEFORE any component
+// renders so that iOS has a handler registered when a notification
+// arrives while the app is in the foreground.  Calling it multiple
+// times is safe — expo-notifications simply replaces the previous handler.
+export function registerForegroundHandler(): void {
+  if (!isNotificationsAvailable) return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowBanner: true,
@@ -126,15 +131,112 @@ export async function cancel(notificationId: string | undefined): Promise<void> 
   }
 }
 
-// Developer-only: schedules a notification ~10s out, to verify real-device
-// delivery quickly. Gated by __DEV__ at the call site too (Settings).
-export async function scheduleDevTestNotification(): Promise<string> {
-  if (!isNotificationsAvailable) throw new Error("unavailable-on-web");
+// ----- Developer diagnostic tools -------------------------------------------
+// All three functions below are only called from the __DEV__-gated Settings
+// dev-tools section and are never included in a production build tree-shake.
+
+// Rich diagnostics returned by every dev test so the developer can see
+// exactly what happened — permission state, OS queue contents, trigger format.
+export type NotificationTestResult = {
+  platform: string;
+  permissionStatus: string;
+  canAskAgain: boolean;
+  notificationId?: string;
+  pendingCount: number;
+  // The OS trigger object stored alongside the scheduled notification.
+  // null = no pending notifications or test was blocked by permission.
+  pendingTrigger?: unknown;
+  // Set when something prevented delivery (permission denied, OS dropped it, etc.).
+  error?: string;
+};
+
+// Pure status check — never schedules anything.
+export async function getNotificationDiagnostics(): Promise<NotificationTestResult> {
+  if (!isNotificationsAvailable) {
+    return { platform: Platform.OS, permissionStatus: "unavailable", canAskAgain: false, pendingCount: 0 };
+  }
+  const perm = await getPermissionStatus();
+  const pending = await Notifications.getAllScheduledNotificationsAsync();
+  const latest = pending[0] ?? null;
+  return {
+    platform: Platform.OS,
+    permissionStatus: perm.status,
+    canAskAgain: perm.canAskAgain,
+    pendingCount: pending.length,
+    pendingTrigger: latest ? latest.trigger : null,
+  };
+}
+
+// Developer-only: schedules a ~1s notification to test PRESENTATION
+// (foreground banner) independently of delayed scheduling.
+export async function scheduleImmediateNotification(): Promise<NotificationTestResult> {
+  if (!isNotificationsAvailable) {
+    return { platform: Platform.OS, permissionStatus: "unavailable", canAskAgain: false, pendingCount: 0, error: "unavailable-on-web" };
+  }
+  const perm = await getPermissionStatus();
+  if (perm.status !== "granted") {
+    const pending = await Notifications.getAllScheduledNotificationsAsync();
+    return {
+      platform: Platform.OS,
+      permissionStatus: perm.status,
+      canAskAgain: perm.canAskAgain,
+      pendingCount: pending.length,
+      error: `Permission is ${perm.status.toUpperCase()} — notification will NOT be delivered. canAskAgain: ${perm.canAskAgain}`,
+    };
+  }
   await ensureAndroidChannel();
-  return Notifications.scheduleNotificationAsync({
+  const id = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: "CarryCue — send now",
+      body: "Foreground & background presentation test.",
+      sound: "default",
+      data: { screen: "home" },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: 1,
+      repeats: false,
+      ...(Platform.OS === "android" ? { channelId: REMINDER_CHANNEL_ID } : {}),
+    },
+  });
+  const pending = await Notifications.getAllScheduledNotificationsAsync();
+  const scheduled = pending.find((n) => n.identifier === id);
+  return {
+    platform: Platform.OS,
+    permissionStatus: perm.status,
+    canAskAgain: perm.canAskAgain,
+    notificationId: id,
+    pendingCount: pending.length,
+    pendingTrigger: scheduled ? scheduled.trigger : null,
+  };
+}
+
+// Developer-only: schedules a notification ~10s out, to test DELAYED delivery.
+// Now returns rich diagnostics and verifies the OS queue after scheduling.
+export async function scheduleDevTestNotification(): Promise<NotificationTestResult> {
+  if (!isNotificationsAvailable) {
+    return { platform: Platform.OS, permissionStatus: "unavailable", canAskAgain: false, pendingCount: 0, error: "unavailable-on-web" };
+  }
+  // CRITICAL: iOS scheduleNotificationAsync() returns an ID even when
+  // permission is denied — but the OS silently drops the notification.
+  // Always check first so the developer gets a clear error instead of
+  // a misleading "scheduled" success.
+  const perm = await getPermissionStatus();
+  if (perm.status !== "granted") {
+    const pending = await Notifications.getAllScheduledNotificationsAsync();
+    return {
+      platform: Platform.OS,
+      permissionStatus: perm.status,
+      canAskAgain: perm.canAskAgain,
+      pendingCount: pending.length,
+      error: `Permission is ${perm.status.toUpperCase()} — notification will NOT be delivered. canAskAgain: ${perm.canAskAgain}`,
+    };
+  }
+  await ensureAndroidChannel();
+  const id = await Notifications.scheduleNotificationAsync({
     content: {
       title: "CarryCue test",
-      body: "This is a test notification.",
+      body: "10-second scheduling test.",
       sound: "default",
       data: { screen: "home" },
     },
@@ -145,6 +247,27 @@ export async function scheduleDevTestNotification(): Promise<string> {
       ...(Platform.OS === "android" ? { channelId: REMINDER_CHANNEL_ID } : {}),
     },
   });
+  // Verify the notification actually landed in the OS pending queue.
+  const pending = await Notifications.getAllScheduledNotificationsAsync();
+  const scheduled = pending.find((n) => n.identifier === id);
+  if (!scheduled) {
+    return {
+      platform: Platform.OS,
+      permissionStatus: perm.status,
+      canAskAgain: perm.canAskAgain,
+      notificationId: id,
+      pendingCount: pending.length,
+      error: "scheduleNotificationAsync returned an ID but it is NOT in the OS pending queue — trigger format may be wrong.",
+    };
+  }
+  return {
+    platform: Platform.OS,
+    permissionStatus: perm.status,
+    canAskAgain: perm.canAskAgain,
+    notificationId: id,
+    pendingCount: pending.length,
+    pendingTrigger: scheduled.trigger,
+  };
 }
 
 // --- Tap handling ---------------------------------------------------------

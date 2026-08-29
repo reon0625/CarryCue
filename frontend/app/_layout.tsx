@@ -9,13 +9,19 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { NotificationResponse } from "expo-notifications";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
-import { addResponseListener, ensureAndroidChannel, getLaunchResponse } from "@/src/services/notifications";
+import { addResponseListener, ensureAndroidChannel, getLaunchResponse, registerForegroundHandler } from "@/src/services/notifications";
 import { StoreProvider } from "@/src/state/store";
 import { colors } from "@/src/theme";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
 LogBox.ignoreAllLogs(true);
+
+// MUST be at module level — before any component renders — so that iOS
+// has a handler registered the instant a foreground notification arrives.
+// Belt-and-suspenders: also called from notifications.ts service on import,
+// but explicit module-level registration here is the authoritative call.
+registerForegroundHandler();
 
 // Keep the native splash visible from cold start until icon fonts register.
 // Required because @expo/vector-icons' componentDidMount fallback fires
