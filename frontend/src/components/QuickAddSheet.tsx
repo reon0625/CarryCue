@@ -16,15 +16,18 @@ import { TriggerRow } from "@/src/components/TriggerRow";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
-const QUICK_FREQUENTS = ["Wallet", "Keys", "Earbuds", "Charger"];
 type Remind = "leaving" | "tomorrow" | "choose";
 
 export function QuickAddSheet({
   visible,
   onClose,
+  frequentlyUsed,
+  onLimitReached,
 }: {
   visible: boolean;
   onClose: () => void;
+  frequentlyUsed: string[];
+  onLimitReached?: () => void;
 }) {
   const router = useRouter();
   const { addItem } = useStore();
@@ -49,18 +52,28 @@ export function QuickAddSheet({
   const save = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const added = addItem(trimmed);
-    if (!added) {
+    const result = addItem(trimmed, "quickAdd");
+    if (result.status === "duplicate") {
       setDupMsg("Already on your list");
+      return;
+    }
+    if (result.status === "limit") {
+      onClose();
+      onLimitReached?.();
       return;
     }
     onClose();
   };
 
   const addFrequent = (name: string) => {
-    const added = addItem(name);
-    if (!added) {
+    const result = addItem(name, "frequentlyUsed");
+    if (result.status === "duplicate") {
       setDupMsg("Already on your list");
+      return;
+    }
+    if (result.status === "limit") {
+      onClose();
+      onLimitReached?.();
       return;
     }
     onClose();
@@ -128,21 +141,23 @@ export function QuickAddSheet({
       ) : (
         <View style={styles.section}>
           <SectionLabel>Frequently used</SectionLabel>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chips}
-            keyboardShouldPersistTaps="handled"
-          >
-            {QUICK_FREQUENTS.map((f) => (
-              <Chip
-                key={f}
-                testID={`quick-frequent-${f}`}
-                label={f}
-                onPress={() => addFrequent(f)}
-              />
-            ))}
-          </ScrollView>
+          {frequentlyUsed.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chips}
+              keyboardShouldPersistTaps="handled"
+            >
+              {frequentlyUsed.map((f) => (
+                <Chip
+                  key={f}
+                  testID={`quick-frequent-${f}`}
+                  label={f}
+                  onPress={() => addFrequent(f)}
+                />
+              ))}
+            </ScrollView>
+          ) : null}
         </View>
       )}
 

@@ -12,6 +12,7 @@ import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { TextButton } from "@/src/components/TextButton";
 import { Toast } from "@/src/components/Toast";
+import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -20,6 +21,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const { items, frequentlyUsed, leaveTime, toggleItem, addItem } = useStore();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -31,19 +33,20 @@ export default function Home() {
 
   const addFromChip = useCallback(
     (name: string) => {
-      const added = addItem(name);
-      if (!added) flash("Already on your list");
+      const result = addItem(name, "frequentlyUsed");
+      if (result.status === "duplicate") flash("Already on your list");
+      else if (result.status === "limit") setUpgradeVisible(true);
     },
     [addItem, flash],
   );
 
   const sorted = useMemo(() => {
-    const incomplete = items.filter((i) => !i.done);
-    const complete = items.filter((i) => i.done);
+    const incomplete = items.filter((i) => !i.completed);
+    const complete = items.filter((i) => i.completed);
     return [...incomplete, ...complete];
   }, [items]);
 
-  const remaining = items.filter((i) => !i.done).length;
+  const remaining = items.filter((i) => !i.completed).length;
   const allDone = items.length > 0 && remaining === 0;
   const isEmpty = items.length === 0;
 
@@ -94,7 +97,7 @@ export default function Home() {
                   key={item.id}
                   testID={`checklist-item-${item.name}`}
                   name={item.name}
-                  done={item.done}
+                  done={item.completed}
                   onToggle={() => toggleItem(item.id)}
                 />
               ))}
@@ -114,7 +117,7 @@ export default function Home() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chips}
               >
-                {frequentlyUsed.slice(0, 5).map((f) => (
+                {frequentlyUsed.map((f) => (
                   <Chip
                     key={f}
                     testID={`frequent-chip-${f}`}
@@ -133,6 +136,14 @@ export default function Home() {
       <QuickAddSheet
         visible={quickAddOpen}
         onClose={() => setQuickAddOpen(false)}
+        frequentlyUsed={frequentlyUsed}
+        onLimitReached={() => setUpgradeVisible(true)}
+      />
+
+      <UpgradeSheet
+        visible={upgradeVisible}
+        reason="items"
+        onClose={() => setUpgradeVisible(false)}
       />
     </View>
   );

@@ -13,14 +13,13 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PrimaryButton } from "@/src/components/PrimaryButton";
-import { TextButton } from "@/src/components/TextButton";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
 export default function Forgot() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { addFrequent, addItem } = useStore();
+  const { recordForgotten } = useStore();
   const [text, setText] = useState("");
   const [saved, setSaved] = useState(false);
   const inputRef = useRef<TextInput>(null);
@@ -33,8 +32,7 @@ export default function Forgot() {
   const save = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    addFrequent(trimmed);
-    addItem(trimmed);
+    recordForgotten(trimmed);
     inputRef.current?.blur();
     setSaved(true);
   };

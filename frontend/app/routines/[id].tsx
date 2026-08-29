@@ -17,6 +17,7 @@ import { ChecklistItem } from "@/src/components/ChecklistItem";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { TextButton } from "@/src/components/TextButton";
+import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -31,12 +32,14 @@ export default function RoutineDetail() {
     addRoutineItem,
     renameRoutine,
     applyRoutine,
+    deleteRoutine,
   } = useStore();
 
   const routine = getRoutine(id);
 
   const [addOpen, setAddOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [itemText, setItemText] = useState("");
   const [nameText, setNameText] = useState(routine?.name ?? "");
   const addRef = useRef<TextInput>(null);
@@ -80,16 +83,31 @@ export default function RoutineDetail() {
   };
 
   const useRoutine = () => {
-    applyRoutine(routine.id);
+    const result = applyRoutine(routine.id);
     if (Platform.OS !== "web") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    if (result.limited) {
+      setUpgradeVisible(true);
+      return;
     }
     router.dismissTo("/home");
   };
 
+  const handleDeleteRoutine = () => {
+    deleteRoutine(routine.id);
+    router.dismissTo("/routines");
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScreenHeader title="" showBack />
+      <ScreenHeader
+        title=""
+        showBack
+        rightIcon="trash-outline"
+        rightTestID="routine-delete-button"
+        onRightPress={handleDeleteRoutine}
+      />
 
       <ScrollView
         contentContainerStyle={styles.content}
@@ -110,7 +128,7 @@ export default function RoutineDetail() {
               key={item.id}
               testID={`routine-item-${item.name}`}
               name={item.name}
-              done={item.done}
+              done={item.completed}
               onToggle={() => toggleRoutineItem(routine.id, item.id)}
               onDelete={() => removeRoutineItem(routine.id, item.id)}
             />
@@ -178,6 +196,15 @@ export default function RoutineDetail() {
           />
         </View>
       </BottomSheet>
+
+      <UpgradeSheet
+        visible={upgradeVisible}
+        reason="items"
+        onClose={() => {
+          setUpgradeVisible(false);
+          router.dismissTo("/home");
+        }}
+      />
     </View>
   );
 }

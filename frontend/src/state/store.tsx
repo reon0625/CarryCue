@@ -8,262 +8,426 @@ import React, {
   useState,
 } from "react";
 
-import { storage } from "@/src/utils/storage";
+import { uid } from "@/src/data/id";
+import { computeFrequentlyUsed } from "@/src/data/frequentlyUsed";
+import { getLimits, Limits, UpgradeReason } from "@/src/data/limits";
+import {
+  AppState,
+  CarryItem,
+  CarryLocation,
+  EntitlementTier,
+  ItemSource,
+  Routine,
+  normalizeName,
+} from "@/src/data/models";
+import { loadState, saveState, wipeAllData } from "@/src/data/repository";
 
-export type Item = { id: string; name: string; done: boolean };
-export type Routine = { id: string; name: string; items: Item[] };
+// Re-exported for screens that only need the shape, not the repository.
+export type { Routine } from "@/src/data/models";
 
-type PersistShape = {
+const nowIso = () => new Date().toISOString();
+
+export type AddResult =
+  | { status: "ok" }
+  | { status: "duplicate" }
+  | { status: "limit"; reason: UpgradeReason };
+
+export type CreateRoutineResult =
+  | { status: "ok"; id: string }
+  | { status: "limit"; reason: UpgradeReason };
+
+export type ApplyRoutineResult = { addedCount: number; limited: boolean };
+
+type StoreValue = {
+  hydrated: boolean;
   hasLaunched: boolean;
   leaveTime: string;
-  items: Item[];
-  frequentlyUsed: string[];
+  items: CarryItem[];
   routines: Routine[];
-};
+  frequentlyUsed: string[];
+  entitlement: EntitlementTier;
+  limits: Limits;
+  notificationsEnabled: boolean;
+  locations: CarryLocation[];
 
-const STORAGE_KEY = "carrycue_state_v1";
-
-let counter = 0;
-const uid = () => `${Date.now().toString(36)}-${(counter++).toString(36)}`;
-
-const mkItems = (names: string[]): Item[] =>
-  names.map((n) => ({ id: uid(), name: n, done: false }));
-
-// Collapse items that share the same name (case-insensitive, trimmed),
-// keeping the first occurrence. Used to heal any persisted state that was
-// written before duplicate-prevention existed.
-const dedupeItems = (items: Item[]): Item[] => {
-  const seen = new Set<string>();
-  const out: Item[] = [];
-  for (const it of items) {
-    const key = it.name.trim().toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(it);
-  }
-  return out;
-};
-
-const initialState: PersistShape = {
-  hasLaunched: false,
-  leaveTime: "8:30",
-  items: mkItems(["Wallet", "Student ID", "Charger", "Umbrella"]),
-  frequentlyUsed: ["Wallet", "Keys", "Charger", "Umbrella"],
-  routines: [
-    { id: uid(), name: "Everyday", items: mkItems(["Wallet", "Keys", "Earbuds"]) },
-    { id: uid(), name: "School", items: mkItems(["Student ID", "Laptop", "Charger"]) },
-    { id: uid(), name: "Gym", items: mkItems(["Shoes", "Towel", "Bottle"]) },
-  ],
-};
-
-type StoreValue = PersistShape & {
-  hydrated: boolean;
   completeLaunch: () => void;
-  addItem: (name: string) => boolean;
+  addItem: (name: string, source?: ItemSource) => AddResult;
   toggleItem: (id: string) => void;
   removeItem: (id: string) => void;
-  addFrequent: (name: string) => void;
-  applyRoutine: (routineId: string) => void;
-  newRoutine: () => string;
+  recordForgotten: (name: string) => void;
+
+  newRoutine: () => CreateRoutineResult;
+  deleteRoutine: (routineId: string) => void;
   addRoutineItem: (routineId: string, name: string) => void;
   removeRoutineItem: (routineId: string, itemId: string) => void;
   toggleRoutineItem: (routineId: string, itemId: string) => void;
   renameRoutine: (routineId: string, name: string) => void;
+  applyRoutine: (routineId: string) => ApplyRoutineResult;
   getRoutine: (routineId: string) => Routine | undefined;
+
+  setNotificationsEnabled: (enabled: boolean) => void;
+  addLocation: (name: string, address: string) => AddResult;
+
+  // Developer-only. Gated by __DEV__ at the call sites (Settings dev tools);
+  // also no-op internally as a second safety net so they can never surface
+  // in a production build even if something calls them directly.
+  setEntitlementDev: (tier: EntitlementTier) => void;
+  resetAllDataDev: () => void;
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<PersistShape>(initialState);
-  const [hydrated, setHydrated] = useState(false);
+  const [state, setState] = useState<AppState | null>(null);
   const loadedRef = useRef(false);
-  const stateRef = useRef(state);
+  const stateRef = useRef<AppState | null>(state);
   stateRef.current = state;
 
   useEffect(() => {
     (async () => {
-      const raw = await storage.getItem<string | null>(STORAGE_KEY, null);
-      if (raw) {
-        try {
-          const saved = JSON.parse(raw) as PersistShape;
-          const merged = { ...initialState, ...saved };
-          // Heal any duplicates that were persisted before dedup existed.
-          merged.items = dedupeItems(merged.items ?? []);
-          merged.routines = (merged.routines ?? []).map((r) => ({
-            ...r,
-            items: dedupeItems(r.items ?? []),
-          }));
-          setState(merged);
-        } catch {
-          // corrupt payload — fall back to initial state
-        }
-      }
+      const loaded = await loadState();
+      setState(loaded);
       loadedRef.current = true;
-      setHydrated(true);
     })();
   }, []);
 
   useEffect(() => {
-    if (!loadedRef.current) return;
-    storage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (!loadedRef.current || !state) return;
+    saveState(state);
   }, [state]);
 
-  const completeLaunch = useCallback(
-    () => setState((s) => ({ ...s, hasLaunched: true })),
+  const completeLaunch = useCallback(() => {
+    setState((s) =>
+      s ? { ...s, settings: { ...s.settings, onboardingCompleted: true } } : s,
+    );
+  }, []);
+
+  // Records a usage signal (added and/or forgotten) for the deterministic
+  // Frequently Used ranking. Never touches the active item list itself.
+  const touchUsage = useCallback(
+    (name: string, opts: { added?: boolean; forgotten?: boolean }) => {
+      const key = normalizeName(name);
+      const ts = nowIso();
+      setState((s) => {
+        if (!s) return s;
+        const existing = s.usageStats[key];
+        const next = {
+          name: name.trim(),
+          addedCount: (existing?.addedCount ?? 0) + (opts.added ? 1 : 0),
+          forgottenCount: (existing?.forgottenCount ?? 0) + (opts.forgotten ? 1 : 0),
+          lastUsedAt: opts.added ? ts : existing?.lastUsedAt ?? null,
+          lastForgottenAt: opts.forgotten ? ts : existing?.lastForgottenAt ?? null,
+        };
+        return { ...s, usageStats: { ...s.usageStats, [key]: next } };
+      });
+    },
     [],
   );
 
-  const addItem = useCallback((name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return false;
-    const exists = stateRef.current.items.some(
-      (it) => it.name.trim().toLowerCase() === trimmed.toLowerCase(),
-    );
-    if (exists) return false;
-    setState((s) => ({
-      ...s,
-      items: [{ id: uid(), name: trimmed, done: false }, ...s.items],
-    }));
-    return true;
-  }, []);
+  const addItem = useCallback(
+    (name: string, source: ItemSource = "quickAdd"): AddResult => {
+      const trimmed = name.trim();
+      if (!trimmed) return { status: "duplicate" };
+      const s = stateRef.current;
+      if (!s) return { status: "duplicate" };
+
+      const key = normalizeName(trimmed);
+      // Completed and incomplete copies both count as duplicates for the
+      // current departure.
+      const exists = s.items.some((it) => normalizeName(it.name) === key);
+      if (exists) return { status: "duplicate" };
+
+      const limits = getLimits(s.settings.entitlement);
+      if (s.items.length >= limits.maxActiveItems) {
+        return { status: "limit", reason: "items" };
+      }
+
+      const ts = nowIso();
+      const newItem: CarryItem = {
+        id: uid(),
+        name: trimmed,
+        completed: false,
+        createdAt: ts,
+        updatedAt: ts,
+        trigger: { type: "leavingHome" },
+        source,
+      };
+      setState((prev) => (prev ? { ...prev, items: [newItem, ...prev.items] } : prev));
+      touchUsage(trimmed, { added: true });
+      return { status: "ok" };
+    },
+    [touchUsage],
+  );
 
   const toggleItem = useCallback((id: string) => {
-    setState((s) => ({
-      ...s,
-      items: s.items.map((it) =>
-        it.id === id ? { ...it, done: !it.done } : it,
-      ),
-    }));
+    setState((s) =>
+      s
+        ? {
+            ...s,
+            items: s.items.map((it) =>
+              it.id === id
+                ? { ...it, completed: !it.completed, updatedAt: nowIso() }
+                : it,
+            ),
+          }
+        : s,
+    );
   }, []);
 
   const removeItem = useCallback((id: string) => {
-    setState((s) => ({ ...s, items: s.items.filter((it) => it.id !== id) }));
+    setState((s) => (s ? { ...s, items: s.items.filter((it) => it.id !== id) } : s));
   }, []);
 
-  const addFrequent = useCallback((name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    setState((s) => {
-      const exists = s.frequentlyUsed.some(
-        (f) => f.toLowerCase() === trimmed.toLowerCase(),
-      );
-      return {
-        ...s,
-        frequentlyUsed: exists ? s.frequentlyUsed : [trimmed, ...s.frequentlyUsed],
-      };
-    });
-  }, []);
+  // Forgot Something → "Add for next time": persists forgotten history
+  // (which also boosts Frequently Used) and adds the item to the active
+  // departure if there's room and it isn't already present.
+  const recordForgotten = useCallback(
+    (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      touchUsage(trimmed, { added: true, forgotten: true });
+      addItem(trimmed, "forgotSomething");
+    },
+    [touchUsage, addItem],
+  );
 
-  const applyRoutine = useCallback((routineId: string) => {
-    setState((s) => {
-      const r = s.routines.find((x) => x.id === routineId);
-      if (!r) return s;
-      const existingNames = new Set(s.items.map((i) => i.name.toLowerCase()));
-      const toAdd = r.items
-        .filter((i) => !existingNames.has(i.name.toLowerCase()))
-        .map((i) => ({ id: uid(), name: i.name, done: false }));
-      return { ...s, items: [...toAdd, ...s.items] };
-    });
-  }, []);
-
-  const newRoutine = useCallback(() => {
+  const newRoutine = useCallback((): CreateRoutineResult => {
+    const s = stateRef.current;
+    if (!s) return { status: "limit", reason: "routines" };
+    const limits = getLimits(s.settings.entitlement);
+    const customCount = s.routines.filter((r) => !r.isSeed).length;
+    if (customCount >= limits.maxCustomRoutines) {
+      return { status: "limit", reason: "routines" };
+    }
+    const ts = nowIso();
     const id = uid();
-    setState((s) => ({
-      ...s,
-      routines: [...s.routines, { id, name: "New routine", items: [] }],
-    }));
-    return id;
+    const routine: Routine = {
+      id,
+      name: "New routine",
+      items: [],
+      isSeed: false,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    setState((prev) => (prev ? { ...prev, routines: [...prev.routines, routine] } : prev));
+    return { status: "ok", id };
+  }, []);
+
+  const deleteRoutine = useCallback((routineId: string) => {
+    setState((s) =>
+      s ? { ...s, routines: s.routines.filter((r) => r.id !== routineId) } : s,
+    );
   }, []);
 
   const addRoutineItem = useCallback((routineId: string, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setState((s) => ({
-      ...s,
-      routines: s.routines.map((r) =>
-        r.id === routineId
-          ? { ...r, items: [...r.items, { id: uid(), name: trimmed, done: false }] }
-          : r,
-      ),
-    }));
+    setState((s) => {
+      if (!s) return s;
+      const key = normalizeName(trimmed);
+      return {
+        ...s,
+        routines: s.routines.map((r) => {
+          if (r.id !== routineId) return r;
+          if (r.items.some((i) => normalizeName(i.name) === key)) return r;
+          return {
+            ...r,
+            updatedAt: nowIso(),
+            items: [...r.items, { id: uid(), name: trimmed, completed: false }],
+          };
+        }),
+      };
+    });
   }, []);
 
   const removeRoutineItem = useCallback((routineId: string, itemId: string) => {
-    setState((s) => ({
-      ...s,
-      routines: s.routines.map((r) =>
-        r.id === routineId
-          ? { ...r, items: r.items.filter((i) => i.id !== itemId) }
-          : r,
-      ),
-    }));
+    setState((s) =>
+      s
+        ? {
+            ...s,
+            routines: s.routines.map((r) =>
+              r.id === routineId
+                ? { ...r, updatedAt: nowIso(), items: r.items.filter((i) => i.id !== itemId) }
+                : r,
+            ),
+          }
+        : s,
+    );
   }, []);
 
   const toggleRoutineItem = useCallback((routineId: string, itemId: string) => {
-    setState((s) => ({
-      ...s,
-      routines: s.routines.map((r) =>
-        r.id === routineId
-          ? {
-              ...r,
-              items: r.items.map((i) =>
-                i.id === itemId ? { ...i, done: !i.done } : i,
-              ),
-            }
-          : r,
-      ),
-    }));
+    setState((s) =>
+      s
+        ? {
+            ...s,
+            routines: s.routines.map((r) =>
+              r.id === routineId
+                ? {
+                    ...r,
+                    items: r.items.map((i) =>
+                      i.id === itemId ? { ...i, completed: !i.completed } : i,
+                    ),
+                  }
+                : r,
+            ),
+          }
+        : s,
+    );
   }, []);
 
   const renameRoutine = useCallback((routineId: string, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setState((s) => ({
-      ...s,
-      routines: s.routines.map((r) =>
-        r.id === routineId ? { ...r, name: trimmed } : r,
-      ),
-    }));
+    setState((s) =>
+      s
+        ? {
+            ...s,
+            routines: s.routines.map((r) =>
+              r.id === routineId ? { ...r, name: trimmed, updatedAt: nowIso() } : r,
+            ),
+          }
+        : s,
+    );
   }, []);
 
+  const applyRoutine = useCallback(
+    (routineId: string): ApplyRoutineResult => {
+      const s = stateRef.current;
+      if (!s) return { addedCount: 0, limited: false };
+      const routine = s.routines.find((r) => r.id === routineId);
+      if (!routine) return { addedCount: 0, limited: false };
+
+      const limits = getLimits(s.settings.entitlement);
+      const existingKeys = new Set(s.items.map((i) => normalizeName(i.name)));
+      const ts = nowIso();
+      const toAdd: CarryItem[] = [];
+      let limited = false;
+      let capacity = limits.maxActiveItems - s.items.length;
+
+      for (const item of routine.items) {
+        const key = normalizeName(item.name);
+        if (existingKeys.has(key)) continue;
+        if (capacity <= 0) {
+          limited = true;
+          break;
+        }
+        existingKeys.add(key);
+        toAdd.push({
+          id: uid(),
+          name: item.name,
+          completed: false,
+          createdAt: ts,
+          updatedAt: ts,
+          trigger: { type: "leavingHome" },
+          source: "routine",
+        });
+        capacity -= 1;
+      }
+
+      if (toAdd.length > 0) {
+        setState((prev) => (prev ? { ...prev, items: [...toAdd, ...prev.items] } : prev));
+        toAdd.forEach((it) => touchUsage(it.name, { added: true }));
+      }
+      return { addedCount: toAdd.length, limited };
+    },
+    [touchUsage],
+  );
+
   const getRoutine = useCallback(
-    (routineId: string) => state.routines.find((r) => r.id === routineId),
-    [state.routines],
+    (routineId: string) => state?.routines.find((r) => r.id === routineId),
+    [state],
+  );
+
+  const setNotificationsEnabled = useCallback((enabled: boolean) => {
+    setState((s) =>
+      s ? { ...s, settings: { ...s.settings, notificationsEnabled: enabled } } : s,
+    );
+  }, []);
+
+  const addLocation = useCallback((name: string, address: string): AddResult => {
+    const s = stateRef.current;
+    if (!s) return { status: "duplicate" };
+    const limits = getLimits(s.settings.entitlement);
+    if (s.settings.locations.length >= limits.maxLocations) {
+      return { status: "limit", reason: "locations" };
+    }
+    const location: CarryLocation = { id: uid(), name, address, isDefault: false };
+    setState((prev) =>
+      prev
+        ? {
+            ...prev,
+            settings: { ...prev.settings, locations: [...prev.settings.locations, location] },
+          }
+        : prev,
+    );
+    return { status: "ok" };
+  }, []);
+
+  const setEntitlementDev = useCallback((tier: EntitlementTier) => {
+    if (!__DEV__) return;
+    setState((s) => (s ? { ...s, settings: { ...s.settings, entitlement: tier } } : s));
+  }, []);
+
+  const resetAllDataDev = useCallback(() => {
+    if (!__DEV__) return;
+    wipeAllData().then(setState);
+  }, []);
+
+  const frequentlyUsed = useMemo(
+    () => (state ? computeFrequentlyUsed(state.usageStats, 5) : []),
+    [state],
   );
 
   const value = useMemo<StoreValue>(
     () => ({
-      ...state,
-      hydrated,
+      hydrated: state !== null,
+      hasLaunched: state?.settings.onboardingCompleted ?? false,
+      leaveTime: state?.settings.leaveTime ?? "8:30",
+      items: state?.items ?? [],
+      routines: state?.routines ?? [],
+      frequentlyUsed,
+      entitlement: state?.settings.entitlement ?? "FREE",
+      limits: getLimits(state?.settings.entitlement ?? "FREE"),
+      notificationsEnabled: state?.settings.notificationsEnabled ?? false,
+      locations: state?.settings.locations ?? [],
       completeLaunch,
       addItem,
       toggleItem,
       removeItem,
-      addFrequent,
-      applyRoutine,
+      recordForgotten,
       newRoutine,
+      deleteRoutine,
       addRoutineItem,
       removeRoutineItem,
       toggleRoutineItem,
       renameRoutine,
+      applyRoutine,
       getRoutine,
+      setNotificationsEnabled,
+      addLocation,
+      setEntitlementDev,
+      resetAllDataDev,
     }),
     [
       state,
-      hydrated,
+      frequentlyUsed,
       completeLaunch,
       addItem,
       toggleItem,
       removeItem,
-      addFrequent,
-      applyRoutine,
+      recordForgotten,
       newRoutine,
+      deleteRoutine,
       addRoutineItem,
       removeRoutineItem,
       toggleRoutineItem,
       renameRoutine,
+      applyRoutine,
       getRoutine,
+      setNotificationsEnabled,
+      addLocation,
+      setEntitlementDev,
+      resetAllDataDev,
     ],
   );
 

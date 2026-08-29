@@ -11,7 +11,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BottomSheet } from "@/src/components/BottomSheet";
+import { TextButton } from "@/src/components/TextButton";
 import { TriggerRow } from "@/src/components/TriggerRow";
+import { UpgradeSheet } from "@/src/components/UpgradeSheet";
+import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 
 type TriggerType = "leaving" | "time" | "arriving";
@@ -19,9 +23,23 @@ type TriggerType = "leaving" | "time" | "arriving";
 export default function Trigger() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { locations, addLocation } = useStore();
   const [type_, setType] = useState<TriggerType>("leaving");
   const [timeChoice, setTimeChoice] = useState("Tomorrow morning");
   const [place, setPlace] = useState("");
+  const [locationsOpen, setLocationsOpen] = useState(false);
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
+
+  const home = locations[0];
+
+  const handleAddLocation = () => {
+    const nextName = `Location ${locations.length + 1}`;
+    const result = addLocation(nextName, "Set address");
+    if (result.status === "limit") {
+      setLocationsOpen(false);
+      setUpgradeVisible(true);
+    }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
@@ -72,10 +90,14 @@ export default function Trigger() {
           <View testID="trigger-leaving-state" style={styles.section}>
             <View style={styles.locationCard}>
               <View style={styles.locationInfo}>
-                <Text style={styles.locationLabel}>Home</Text>
-                <Text style={styles.locationValue}>Shibuya, Tokyo</Text>
+                <Text style={styles.locationLabel}>{home?.name ?? "Home"}</Text>
+                <Text style={styles.locationValue}>{home?.address ?? "Shibuya, Tokyo"}</Text>
               </View>
-              <Pressable hitSlop={8} testID="location-change">
+              <Pressable
+                hitSlop={8}
+                testID="location-change"
+                onPress={() => setLocationsOpen(true)}
+              >
                 <Text style={styles.change}>Change</Text>
               </Pressable>
             </View>
@@ -112,6 +134,34 @@ export default function Trigger() {
           </View>
         ) : null}
       </ScrollView>
+
+      <BottomSheet
+        visible={locationsOpen}
+        onClose={() => setLocationsOpen(false)}
+        testID="locations-sheet"
+      >
+        <Text style={styles.whereLabel}>Locations</Text>
+        {locations.map((loc) => (
+          <View key={loc.id} style={styles.locationListRow}>
+            <Text style={styles.locationListName}>{loc.name}</Text>
+            <Text style={styles.locationListAddress}>{loc.address}</Text>
+          </View>
+        ))}
+        <View style={styles.addLocationButton}>
+          <TextButton
+            testID="add-location-button"
+            title="Add location"
+            icon="add"
+            onPress={handleAddLocation}
+          />
+        </View>
+      </BottomSheet>
+
+      <UpgradeSheet
+        visible={upgradeVisible}
+        reason="locations"
+        onClose={() => setUpgradeVisible(false)}
+      />
     </View>
   );
 }
@@ -197,5 +247,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     fontSize: type.checklistItem,
     color: colors.textPrimary,
+  },
+  locationListRow: {
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  locationListName: {
+    fontSize: type.checklistItem,
+    fontWeight: font.medium,
+    color: colors.textPrimary,
+  },
+  locationListAddress: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  addLocationButton: {
+    marginTop: spacing.sm,
   },
 });
