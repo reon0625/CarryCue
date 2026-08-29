@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   BackHandler,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -18,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radius, spacing } from "@/src/theme";
 
 const OFFSCREEN = 800;
+const IS_WEB = Platform.OS === "web";
 
 export function BottomSheet({
   visible,
@@ -31,6 +33,10 @@ export function BottomSheet({
   testID?: string;
 }) {
   const insets = useSafeAreaInsets();
+  // On web the browser resizes the visual viewport itself when the
+  // keyboard opens (and mobile Safari's implementation of this native
+  // module is unreliable), so we never read `kb` there — see the IS_WEB
+  // branch in panelStyle below.
   const { height: kb } = useReanimatedKeyboardAnimation();
   const progress = useSharedValue(0);
   const [mounted, setMounted] = useState(visible);
@@ -61,7 +67,7 @@ export function BottomSheet({
 
   const panelStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - progress.value) * OFFSCREEN }],
-    marginBottom: kb.value,
+    marginBottom: IS_WEB ? 0 : kb.value,
   }));
 
   if (!mounted) return null;
@@ -70,7 +76,7 @@ export function BottomSheet({
   // Android uses a Material-style modal bottom sheet.
   const panelRadius = Platform.OS === "ios" ? radius.lg : radius.lg;
 
-  return (
+  const sheet = (
     <View style={StyleSheet.absoluteFill} testID={testID}>
       <AnimatedPressable
         testID={testID ? `${testID}-backdrop` : "sheet-backdrop"}
@@ -95,6 +101,30 @@ export function BottomSheet({
       </View>
     </View>
   );
+
+  // Web fallback: react-native-web's ScrollView installs its own touch
+  // responder to detect scroll gestures, and a sheet rendered inline in
+  // the tree can end up sharing that responder chain with an ancestor
+  // ScrollView. In real mobile Safari (not the desktop/headless
+  // emulation used during development) that can swallow the very tap
+  // that opens the sheet, or leave it positioned behind other content.
+  // RN's own <Modal> renders through a top-level portal outside of any
+  // ScrollView, which sidesteps that responder conflict entirely and is
+  // well supported by react-native-web.
+  if (IS_WEB) {
+    return (
+      <Modal
+        visible
+        transparent
+        animationType="none"
+        onRequestClose={onClose}
+      >
+        {sheet}
+      </Modal>
+    );
+  }
+
+  return sheet;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
