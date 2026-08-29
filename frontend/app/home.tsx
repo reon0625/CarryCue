@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ChecklistItem } from "@/src/components/ChecklistItem";
@@ -13,23 +14,49 @@ import { SectionLabel } from "@/src/components/SectionLabel";
 import { TextButton } from "@/src/components/TextButton";
 import { Toast } from "@/src/components/Toast";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
+import { CarryItem } from "@/src/data/models";
 import { useStore } from "@/src/state/store";
-import { colors, font, spacing, type } from "@/src/theme";
+import { colors, font, radius, spacing, type } from "@/src/theme";
 
 export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items, frequentlyUsed, leaveTime, toggleItem, addItem } = useStore();
+  const { items, frequentlyUsed, leaveTime, toggleItem, addItem, removeItem, restoreItem } = useStore();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // undo state: the deleted item + its original index in the items array
+  const [undoPayload, setUndoPayload] = useState<{ item: CarryItem; index: number } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flash = useCallback((msg: string) => {
+    // Don't interrupt an active Undo toast with a plain flash
+    if (undoPayload) return;
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(""), 1600);
-  }, []);
+  }, [undoPayload]);
+
+  const handleDelete = useCallback(
+    (item: CarryItem) => {
+      const index = items.findIndex((i) => i.id === item.id);
+      removeItem(item.id);
+      setUndoPayload({ item, index });
+      if (undoTimer.current) clearTimeout(undoTimer.current);
+      undoTimer.current = setTimeout(() => {
+        setUndoPayload(null);
+      }, 3000);
+    },
+    [items, removeItem],
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!undoPayload) return;
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    restoreItem(undoPayload.item, undoPayload.index);
+    setUndoPayload(null);
+  }, [undoPayload, restoreItem]);
 
   const addFromChip = useCallback(
     (name: string) => {
@@ -92,15 +119,46 @@ export default function Home() {
             )}
 
             <View style={styles.list}>
-              {sorted.map((item) => (
-                <ChecklistItem
-                  key={item.id}
-                  testID={`checklist-item-${item.name}`}
-                  name={item.name}
-                  done={item.completed}
-                  onToggle={() => toggleItem(item.id)}
-                />
-              ))}
+              {sorted.map((item) => {
+                const onDelete = () => handleDelete(item);
+                // Web: show inline delete button (swipe not available in browser)
+                if (Platform.OS === "web") {
+                  return (
+                    <ChecklistItem
+                      key={item.id}
+                      testID={`checklist-item-${item.name}`}
+                      name={item.name}
+                      done={item.completed}
+                      onToggle={() => toggleItem(item.id)}
+                      onDelete={onDelete}
+                    />
+                  );
+                }
+                // iOS / Android: swipe left to reveal Delete
+                return (
+                  <Swipeable
+                    key={item.id}
+                    friction={2}
+                    rightThreshold={60}
+                    renderRightActions={() => (
+                      <Pressable
+                        style={styles.swipeDelete}
+                        onPress={onDelete}
+                        testID={`swipe-delete-${item.name}`}
+                      >
+                        <Text style={styles.swipeDeleteText}>Delete</Text>
+                      </Pressable>
+                    )}
+                  >
+                    <ChecklistItem
+                      testID={`checklist-item-${item.name}`}
+                      name={item.name}
+                      done={item.completed}
+                      onToggle={() => toggleItem(item.id)}
+                    />
+                  </Swipeable>
+                );
+              })}
             </View>
 
             <TextButton
@@ -111,7 +169,7 @@ export default function Home() {
             />
 
             <View style={styles.frequentSection}>
-              <SectionLabel>Frequently used</SectionLabel>
+              <SectionLabel>Suggestions</SectionLabel>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -131,7 +189,12 @@ export default function Home() {
         )}
       </ScrollView>
 
-      <Toast message={toast} visible={!!toast} testID="home-toast" />
+      <Toast
+        message={undoPayload ? "Item removed" : toast}
+        visible={!!(undoPayload || toast)}
+        testID="home-toast"
+        onUndo={undoPayload ? handleUndo : undefined}
+      />
 
       <QuickAddSheet
         visible={quickAddOpen}
@@ -205,5 +268,19 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingTop: spacing.sm,
     paddingRight: spacing.md,
+  },
+  swipeDelete: {
+    backgroundColor: "#EF4444",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 80,
+    borderRadius: radius.sm,
+    marginVertical: 2,
+    marginRight: 2,
+  },
+  swipeDeleteText: {
+    color: "#FFFFFF",
+    fontSize: type.secondary,
+    fontWeight: font.semibold,
   },
 });

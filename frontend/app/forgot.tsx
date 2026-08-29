@@ -13,15 +13,21 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PrimaryButton } from "@/src/components/PrimaryButton";
+import { TextButton } from "@/src/components/TextButton";
+import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
+
+type SaveState = "ok" | "limit" | null;
 
 export default function Forgot() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { recordForgotten } = useStore();
   const [text, setText] = useState("");
-  const [saved, setSaved] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>(null);
+  const [savedName, setSavedName] = useState("");
+  const [upgradeVisible, setUpgradeVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -32,9 +38,16 @@ export default function Forgot() {
   const save = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    recordForgotten(trimmed);
+    const result = recordForgotten(trimmed);
+    setSavedName(trimmed);
     inputRef.current?.blur();
-    setSaved(true);
+    if (result.status === "limit") {
+      setSaveState("limit");
+    } else {
+      // "ok" or "duplicate" — in both cases the forgotten record is saved.
+      // Duplicate means item was already in the departure, which is fine.
+      setSaveState("ok");
+    }
   };
 
   return (
@@ -56,21 +69,51 @@ export default function Forgot() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={insets.top + 60}
       >
-        {saved ? (
+        {saveState ? (
           <View style={styles.savedWrap} testID="forgot-saved-state">
             <View style={styles.savedIcon}>
               <Ionicons name="checkmark" size={22} color={colors.accent} />
             </View>
             <Text style={styles.savedTitle}>Saved</Text>
-            <Text style={styles.savedBody}>We&apos;ll remind you next time.</Text>
 
-            <View style={styles.doneButton}>
-              <PrimaryButton
-                title="Done"
-                onPress={() => router.back()}
-                testID="forgot-done"
-              />
-            </View>
+            {saveState === "limit" ? (
+              <>
+                <Text style={styles.savedBody}>
+                  We&apos;ll remember{" "}
+                  <Text style={styles.savedBold}>{savedName}</Text>.
+                </Text>
+                <Text style={styles.limitNote}>
+                  Your next departure is already at the Free 5-item limit.
+                </Text>
+                <View style={styles.limitActions}>
+                  <PrimaryButton
+                    title="Upgrade to Pro"
+                    onPress={() => setUpgradeVisible(true)}
+                    testID="forgot-upgrade"
+                  />
+                  <View style={styles.secondaryAction}>
+                    <TextButton
+                      title="Done"
+                      onPress={() => router.back()}
+                      testID="forgot-done"
+                    />
+                  </View>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.savedBody}>
+                  We&apos;ll remind you next time.
+                </Text>
+                <View style={styles.doneButton}>
+                  <PrimaryButton
+                    title="Done"
+                    onPress={() => router.back()}
+                    testID="forgot-done"
+                  />
+                </View>
+              </>
+            )}
           </View>
         ) : (
           <View style={styles.flex}>
@@ -102,6 +145,13 @@ export default function Forgot() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      <UpgradeSheet
+        visible={upgradeVisible}
+        reason="items"
+        onClose={() => setUpgradeVisible(false)}
+        testID="forgot-upgrade-sheet"
+      />
     </View>
   );
 }
@@ -173,6 +223,27 @@ const styles = StyleSheet.create({
   savedBody: {
     fontSize: type.secondary + 1,
     color: colors.textSecondary,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  savedBold: {
+    fontWeight: font.semibold,
+    color: colors.textPrimary,
+  },
+  limitNote: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  limitActions: {
+    alignSelf: "stretch",
+    marginTop: "auto",
+    marginBottom: spacing.xl,
+  },
+  secondaryAction: {
+    alignItems: "center",
     marginTop: spacing.xs,
   },
   doneButton: {

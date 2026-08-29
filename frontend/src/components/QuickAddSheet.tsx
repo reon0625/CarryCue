@@ -140,7 +140,7 @@ export function QuickAddSheet({
         </View>
       ) : (
         <View style={styles.section}>
-          <SectionLabel>Frequently used</SectionLabel>
+          <SectionLabel>Suggestions</SectionLabel>
           {frequentlyUsed.length > 0 ? (
             <ScrollView
               horizontal

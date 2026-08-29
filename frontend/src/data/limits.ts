@@ -5,19 +5,21 @@
 import { EntitlementTier } from "@/src/data/models";
 
 export type Limits = {
-  maxActiveItems: number;
+  // Total items allowed in the active departure — completed AND incomplete
+  // items both count. Completing an item does NOT free up a slot for Free users.
+  maxDepartureItems: number;
   maxCustomRoutines: number;
   maxLocations: number;
 };
 
 const FREE_LIMITS: Limits = {
-  maxActiveItems: 5,
+  maxDepartureItems: 5,
   maxCustomRoutines: 1,
   maxLocations: 1,
 };
 
 const PRO_LIMITS: Limits = {
-  maxActiveItems: Infinity,
+  maxDepartureItems: Infinity,
   maxCustomRoutines: Infinity,
   maxLocations: Infinity,
 };

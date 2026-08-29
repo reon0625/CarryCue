@@ -54,7 +54,8 @@ type StoreValue = {
   addItem: (name: string, source?: ItemSource) => AddResult;
   toggleItem: (id: string) => void;
   removeItem: (id: string) => void;
-  recordForgotten: (name: string) => void;
+  restoreItem: (item: CarryItem, atIndex: number) => void;
+  recordForgotten: (name: string) => AddResult;
 
   newRoutine: () => CreateRoutineResult;
   deleteRoutine: (routineId: string) => void;
@@ -138,7 +139,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (exists) return { status: "duplicate" };
 
       const limits = getLimits(s.settings.entitlement);
-      if (s.items.length >= limits.maxActiveItems) {
+      // All items (completed + incomplete) count toward the departure limit.
+      if (s.items.length >= limits.maxDepartureItems) {
         return { status: "limit", reason: "items" };
       }
 
@@ -178,15 +180,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setState((s) => (s ? { ...s, items: s.items.filter((it) => it.id !== id) } : s));
   }, []);
 
-  // Forgot Something → "Add for next time": persists forgotten history
-  // (which also boosts Frequently Used) and adds the item to the active
-  // departure if there's room and it isn't already present.
+  const restoreItem = useCallback((item: CarryItem, atIndex: number) => {
+    setState((s) => {
+      if (!s) return s;
+      const newItems = [...s.items];
+      const clampedIndex = Math.min(Math.max(0, atIndex), newItems.length);
+      newItems.splice(clampedIndex, 0, item);
+      return { ...s, items: newItems };
+    });
+  }, []);
+
+  // Forgot Something → "Add for next time": ALWAYS persists the forgotten
+  // signal (boosts Suggestions ranking) regardless of departure limit.
+  // Returns AddResult so the caller can show the correct state (saved-ok
+  // vs saved-but-at-limit).
   const recordForgotten = useCallback(
-    (name: string) => {
+    (name: string): AddResult => {
       const trimmed = name.trim();
-      if (!trimmed) return;
-      touchUsage(trimmed, { added: true, forgotten: true });
-      addItem(trimmed, "forgotSomething");
+      if (!trimmed) return { status: "duplicate" };
+      // Always save the forgotten signal — this keeps the item eligible for
+      // Suggestions even when the departure is full.
+      touchUsage(trimmed, { forgotten: true });
+      // addItem handles the `added` signal internally + limit enforcement.
+      return addItem(trimmed, "forgotSomething");
     },
     [touchUsage, addItem],
   );
@@ -302,7 +318,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const ts = nowIso();
       const toAdd: CarryItem[] = [];
       let limited = false;
-      let capacity = limits.maxActiveItems - s.items.length;
+      let capacity = limits.maxDepartureItems - s.items.length;
 
       for (const item of routine.items) {
         const key = normalizeName(item.name);
@@ -394,6 +410,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addItem,
       toggleItem,
       removeItem,
+      restoreItem,
       recordForgotten,
       newRoutine,
       deleteRoutine,
@@ -415,6 +432,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       addItem,
       toggleItem,
       removeItem,
+      restoreItem,
       recordForgotten,
       newRoutine,
       deleteRoutine,
