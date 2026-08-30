@@ -58,6 +58,12 @@ import {
   processExitEvent,
 } from "@/src/services/geofencingStateMachine";
 
+// ── Registration error storage key ───────────────────────────────────────────
+// Persisted whenever startGeofencingAsync throws or post-registration
+// verification fails. Read by getGeofencingDiagnostics and shown in
+// the Settings dev panel so physical-device failures are surfaced clearly.
+export const GEO_LAST_REG_ERROR_KEY = "carrycue_geo_last_reg_error";
+
 // ── Adapter: wrap AsyncStorage in GeoStorageInterface ────────────────────────
 
 const geoStorage: GeoStorageInterface = {
@@ -181,6 +187,8 @@ export type GeofencingDiagnostics = {
   armed: boolean;
   lastEvent: GeofenceEventLog | null;
   lastNotificationAt: string | null;
+  /** Non-null when startGeofencingAsync threw or post-registration checks failed. */
+  lastRegistrationError: { message: string; timestamp: string } | null;
 };
 
 // ── Permission helpers ────────────────────────────────────────────────────────
@@ -252,16 +260,44 @@ export async function registerHomeGeofence(coords: {
   // naturally and the first real EXIT notifies correctly.
   await initializeRegistration(geoStorage, Date.now());
 
-  await Location.startGeofencingAsync(HOME_GEOFENCE_TASK, [
-    {
-      identifier: HOME_GEOFENCE_REGION_ID,
-      latitude: coords.latitude,
-      longitude: coords.longitude,
-      radius: GEOFENCE_RADIUS_METERS,
-      notifyOnEnter: true, // ENTER is used for re-arming after return home.
-      notifyOnExit: true,
-    },
-  ]);
+  try {
+    await Location.startGeofencingAsync(HOME_GEOFENCE_TASK, [
+      {
+        identifier: HOME_GEOFENCE_REGION_ID,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        radius: GEOFENCE_RADIUS_METERS,
+        notifyOnEnter: true, // ENTER is used for re-arming after return home.
+        notifyOnExit: true,
+      },
+    ]);
+
+    // Post-registration verification — confirm the OS actually accepted the task.
+    const [taskRegistered, geofencingStarted] = await Promise.all([
+      TaskManager.isTaskRegisteredAsync(HOME_GEOFENCE_TASK).catch(() => false),
+      Location.hasStartedGeofencingAsync(HOME_GEOFENCE_TASK).catch(() => false),
+    ]);
+
+    if (!taskRegistered || !geofencingStarted) {
+      const errMsg = `Verification failed: task=${taskRegistered}, geofencing=${geofencingStarted}`;
+      await AsyncStorage.setItem(
+        GEO_LAST_REG_ERROR_KEY,
+        JSON.stringify({ message: errMsg, timestamp: new Date().toISOString() }),
+      );
+      // Surface via diagnostics only — do NOT throw, the OS may still honour it.
+    } else {
+      // Clear any stale error from a previous failed attempt.
+      await AsyncStorage.removeItem(GEO_LAST_REG_ERROR_KEY);
+    }
+  } catch (e: unknown) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    await AsyncStorage.setItem(
+      GEO_LAST_REG_ERROR_KEY,
+      JSON.stringify({ message: errMsg, timestamp: new Date().toISOString() }),
+    );
+    // Re-throw so Settings UI can display the error immediately.
+    throw e;
+  }
 }
 
 export async function unregisterHomeGeofence(): Promise<void> {
@@ -303,6 +339,7 @@ export async function getGeofencingDiagnostics(homeCoords?: {
       armed: false,
       lastEvent: null,
       lastNotificationAt: null,
+      lastRegistrationError: null,
     };
   }
 
@@ -332,6 +369,12 @@ export async function getGeofencingDiagnostics(homeCoords?: {
     }
   } catch {}
 
+  let lastRegistrationError: { message: string; timestamp: string } | null = null;
+  try {
+    const raw = await AsyncStorage.getItem(GEO_LAST_REG_ERROR_KEY);
+    if (raw) lastRegistrationError = JSON.parse(raw) as { message: string; timestamp: string };
+  } catch {}
+
   return {
     foregroundPermission: perms.foreground,
     backgroundPermission: perms.background,
@@ -343,7 +386,70 @@ export async function getGeofencingDiagnostics(homeCoords?: {
     armed,
     lastEvent,
     lastNotificationAt,
+    lastRegistrationError,
   };
+}
+
+// ── Startup self-healing ──────────────────────────────────────────────────────
+//
+// Called once when the store finishes hydrating (via GeofenceHealer in
+// _layout.tsx).  If the OS killed the background task (common after iOS
+// memory pressure or force-quit), this re-registers the geofence WITHOUT
+// resetting the armed/disarmed state machine so the departure cycle resumes
+// seamlessly after any app restart.
+
+export async function healGeofenceOnStartup(homeCoords: {
+  latitude: number;
+  longitude: number;
+}): Promise<void> {
+  if (!isGeofencingAvailable) return;
+
+  // Only heal when background permission is still "Always" / "granted".
+  try {
+    const bg = await Location.getBackgroundPermissionsAsync();
+    if (!bg.granted) return;
+  } catch {
+    return;
+  }
+
+  // Nothing to heal — task is already registered.
+  const alreadyRegistered = await isHomeGeofenceRegistered();
+  if (alreadyRegistered) return;
+
+  console.log("[CarryCue Geo] Startup self-heal: task missing, re-registering…");
+
+  try {
+    // Defensive stop of any zombie remnant — normally a no-op.
+    try {
+      const hasTask = await TaskManager.isTaskRegisteredAsync(HOME_GEOFENCE_TASK);
+      if (hasTask) await Location.stopGeofencingAsync(HOME_GEOFENCE_TASK);
+    } catch { /* ignore */ }
+
+    await Location.startGeofencingAsync(HOME_GEOFENCE_TASK, [
+      {
+        identifier: HOME_GEOFENCE_REGION_ID,
+        latitude: homeCoords.latitude,
+        longitude: homeCoords.longitude,
+        radius: GEOFENCE_RADIUS_METERS,
+        notifyOnEnter: true,
+        notifyOnExit: true,
+      },
+    ]);
+
+    // Clear any stale registration error from a previous failure.
+    await AsyncStorage.removeItem(GEO_LAST_REG_ERROR_KEY);
+    console.log("[CarryCue Geo] Startup self-heal: success");
+  } catch (e: unknown) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    await AsyncStorage.setItem(
+      GEO_LAST_REG_ERROR_KEY,
+      JSON.stringify({
+        message: `[startup-heal] ${errMsg}`,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    console.warn("[CarryCue Geo] Startup self-heal failed:", errMsg);
+  }
 }
 
 // ── Simulate exit (developer only) ────────────────────────────────────────────

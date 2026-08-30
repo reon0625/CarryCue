@@ -15,8 +15,8 @@ import { addResponseListener, ensureAndroidChannel, getLaunchResponse, registerF
 // called before any component renders — required by Expo TaskManager.
 // Must come AFTER the notification handler registration above, but before
 // any component mounts.
-import "@/src/services/geofencing";
-import { StoreProvider } from "@/src/state/store";
+import { healGeofenceOnStartup } from "@/src/services/geofencing";
+import { StoreProvider, useStore } from "@/src/state/store";
 import { colors } from "@/src/theme";
 
 // Disable logbox errors etc so that users can see the app
@@ -34,6 +34,23 @@ registerForegroundHandler();
 // Font.loadAsync against a broken vendor path if any <Icon> mounts before
 // the family is registered — which throws on Android Expo Go.
 SplashScreen.preventAutoHideAsync();
+
+// Re-registers the Home geofence silently after OS task-kill scenarios.
+// Must live inside StoreProvider so it can read homeLocation via useStore.
+function GeofenceHealer() {
+  const { locations, hydrated } = useStore();
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const home = locations.find((l) => l.isDefault) ?? locations[0];
+    if (home?.latitude == null || home?.longitude == null) return;
+    // Fire-and-forget: errors are persisted to GEO_LAST_REG_ERROR_KEY and
+    // surfaced in the Settings diagnostics panel.
+    healGeofenceOnStartup({ latitude: home.latitude, longitude: home.longitude });
+  }, [hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
@@ -77,6 +94,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <KeyboardProvider>
           <StoreProvider>
+            <GeofenceHealer />
             <StatusBar style="dark" />
             <Stack
               screenOptions={{

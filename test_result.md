@@ -226,6 +226,68 @@ test_plan:
   test_all: true
   test_priority: "high_first"
 
+  - task: "Step 3B — registerHomeGeofence: try/catch + post-registration verification + persist last_registration_error"
+    implemented: true
+    working: "NA"
+    file: "app/frontend/src/services/geofencing.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Changes to registerHomeGeofence:
+          1. Wrapped Location.startGeofencingAsync in try/catch.
+          2. After successful call, runs Promise.all([TaskManager.isTaskRegisteredAsync, Location.hasStartedGeofencingAsync]) to verify the OS actually registered the task.
+          3. If verification fails: persists error message + timestamp to AsyncStorage key GEO_LAST_REG_ERROR_KEY (does NOT throw — surfaces via diagnostics only).
+          4. If successful: removes any stale GEO_LAST_REG_ERROR_KEY entry.
+          5. If catch fires: persists error then re-throws so Settings UI can display it immediately.
+          Also added GEO_LAST_REG_ERROR_KEY constant and updated GeofencingDiagnostics type + getGeofencingDiagnostics to include lastRegistrationError field.
+
+  - task: "Step 3B — Startup self-healing: healGeofenceOnStartup registered in _layout.tsx via GeofenceHealer"
+    implemented: true
+    working: "NA"
+    file: "app/frontend/src/services/geofencing.ts, app/frontend/app/_layout.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          1. Added healGeofenceOnStartup(homeCoords) to geofencing.ts.
+             - Checks background permission is 'granted'; exits early if not.
+             - Checks isHomeGeofenceRegistered(); exits early if already registered (no-op case).
+             - If task is missing: calls Location.startGeofencingAsync with home coords.
+             - Does NOT call initializeRegistration — preserves the existing armed/disarmed state from before the OS killed the task.
+             - On success: removes GEO_LAST_REG_ERROR_KEY.
+             - On failure: persists [startup-heal] prefixed error to GEO_LAST_REG_ERROR_KEY.
+          2. Added GeofenceHealer component in _layout.tsx (inside StoreProvider).
+             - Uses useStore() to get { locations, hydrated }.
+             - useEffect fires once when hydrated=true.
+             - Finds the default location; if it has coords, calls healGeofenceOnStartup (fire-and-forget).
+          3. Changed side-effect import of geofencing module to named import of healGeofenceOnStartup
+             (module-level defineTask still executes on import).
+
+  - task: "Step 3B — Settings diagnostics: display lastRegistrationError in Geofencing Diagnostics panel"
+    implemented: true
+    working: "NA"
+    file: "app/frontend/app/settings.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          In the __DEV__ Geofencing Diagnostics block, added a conditional row after the geofence row:
+          - If geoDiag.lastRegistrationError is non-null, renders two red DiagRow entries:
+            last_reg_err: <message text>
+            reg_err_ts:   <ISO timestamp>
+          - If null, these rows are hidden (no error state is shown).
+          This allows reading the exact error thrown on physical device without needing a debugger.
+
 agent_communication:
   - agent: "main"
     message: |
@@ -241,15 +303,25 @@ agent_communication:
       
       Please test all 4 feature areas using the web preview at localhost:3000.
       No credentials needed. No backend. Use the dev tools in Settings (gear icon) to toggle FREE/PRO and reset data.
+
+  - agent: "main"
+    message: |
+      Step 3B Geofence Registration Fix — 3 tasks implemented. TypeScript: 0 errors. ESLint: 0 warnings.
+
+      New tasks to verify (frontend only):
+      1. "Step 3B — registerHomeGeofence: try/catch + post-registration verification + persist last_registration_error"
+      2. "Step 3B — Startup self-healing: healGeofenceOnStartup registered in _layout.tsx via GeofenceHealer"
+      3. "Step 3B — Settings diagnostics: display lastRegistrationError in Geofencing Diagnostics panel"
+
+      IMPORTANT TESTING CONSTRAINTS:
+      - Geofencing itself (startGeofencingAsync) is NOT available on web preview or Expo Go.
+        The testing_agent CANNOT test actual OS task registration.
+      - Testing_agent SHOULD verify:
+        a) The app still boots and navigates correctly (regression check).
+        b) Settings screen loads with all existing rows intact.
+        c) In the dev Geofencing Diagnostics block: the new lastRegistrationError rows are absent
+           when there is no error stored (expected on web — isGeofencingAvailable=false so errors are never written).
+        d) geofencing.ts compiles cleanly (TSC: 0 errors already confirmed).
+        e) _layout.tsx: GeofenceHealer renders null and does not crash on web (isGeofencingAvailable guard returns early).
       
-      Key verification steps from the spec:
-      1. "Frequently Used" is gone; "SUGGESTIONS" (section label uppercased) appears in Home and QuickAdd.
-      2. <5 items: Forgot Something → "Add for next time" → item added, "Saved / remind" state shown.
-      3. Exactly 5 items: Forgot Something → "Add for next time" → "Saved / remember X / limit" state + [Upgrade to Pro] + [Done].
-      4. Reload after #3: forgotten item should appear in Suggestions chips.
-      5. 5 items, complete 2, try adding 6th → blocked (Free).
-      6. Switch to PRO → add 6th item → allowed.
-      7. Web: delete × button visible on each item → tap → item disappears → "Item removed · Undo" toast.
-      8. Tap Undo → item restored.
-      9. Delete → wait 3s → reload → item gone.
-      10. Deleted item still appears in Suggestions chips (history not wiped).
+      No credentials required. No backend.

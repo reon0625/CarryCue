@@ -478,6 +478,19 @@ export default function Settings() {
                 ) : null}
                 <DiagRow label="geofence" value={String(geoDiag.geofenceRegistered)}
                   isError={!geoDiag.geofenceRegistered} />
+                {geoDiag.lastRegistrationError ? (
+                  <>
+                    <DiagRow
+                      label="last_reg_err"
+                      value={geoDiag.lastRegistrationError.message}
+                      isError
+                    />
+                    <DiagRow
+                      label="reg_err_ts"
+                      value={geoDiag.lastRegistrationError.timestamp}
+                    />
+                  </>
+                ) : null}
                 <DiagRow label="armed" value={String(geoDiag.armed)} />
                 <DiagRow label="tasks"
                   value={geoDiag.registeredTasks.length > 0 ? geoDiag.registeredTasks.join(", ") : "none"} />
