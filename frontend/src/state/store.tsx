@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { AppState as NativeAppState } from "react-native";
 
 import { uid } from "@/src/data/id";
 import { computeFrequentlyUsed } from "@/src/data/frequentlyUsed";
@@ -18,10 +19,17 @@ import {
   EntitlementTier,
   ItemSource,
   Routine,
+  RoutineSchedule,
   Trigger,
+  createDefaultRoutineSchedule,
   normalizeName,
 } from "@/src/data/models";
-import { loadState, saveState, wipeAllData } from "@/src/data/repository";
+import {
+  prepareDueScheduledRoutines,
+  saveState,
+  subscribeToRepositoryStateChanges,
+  wipeAllData,
+} from "@/src/data/repository";
 import { cancel as cancelNotification, scheduleAt } from "@/src/services/notifications";
 
 // Re-exported for screens that only need the shape, not the repository.
@@ -73,6 +81,10 @@ type StoreValue = {
   removeRoutineItem: (routineId: string, itemId: string) => void;
   toggleRoutineItem: (routineId: string, itemId: string) => void;
   renameRoutine: (routineId: string, name: string) => void;
+  setRoutineSchedule: (
+    routineId: string,
+    updates: Partial<Pick<RoutineSchedule, "enabled" | "weekdays" | "prepareTime">>,
+  ) => void;
   applyRoutine: (routineId: string) => ApplyRoutineResult;
   getRoutine: (routineId: string) => Routine | undefined;
 
@@ -96,16 +108,45 @@ const StoreContext = createContext<StoreValue | null>(null);
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState | null>(null);
   const loadedRef = useRef(false);
+  const evaluatingSchedulesRef = useRef(false);
   const stateRef = useRef<AppState | null>(state);
   stateRef.current = state;
 
   useEffect(() => {
     (async () => {
-      const loaded = await loadState();
+      const loaded = await prepareDueScheduledRoutines();
       setState(loaded);
       loadedRef.current = true;
     })();
   }, []);
+
+  // Re-read persisted state on foreground so background geofence preparation
+  // or ENTER cleanup cannot be overwritten by a stale in-memory snapshot.
+  useEffect(() => {
+    const subscription = NativeAppState.addEventListener("change", (next) => {
+      if (
+        next !== "active" ||
+        !loadedRef.current ||
+        evaluatingSchedulesRef.current
+      ) {
+        return;
+      }
+      evaluatingSchedulesRef.current = true;
+      prepareDueScheduledRoutines()
+        .then(setState)
+        .finally(() => {
+          evaluatingSchedulesRef.current = false;
+        });
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // When a geofence callback runs in the foreground process, reflect its
+  // persisted scheduled-item or ENTER-cleanup result immediately in the UI.
+  useEffect(
+    () => subscribeToRepositoryStateChanges(setState),
+    [],
+  );
 
   useEffect(() => {
     if (!loadedRef.current || !state) return;
@@ -314,6 +355,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       name: "New routine",
       items: [],
       isSeed: false,
+      schedule: createDefaultRoutineSchedule(),
       createdAt: ts,
       updatedAt: ts,
     };
@@ -397,6 +439,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         : s,
     );
   }, []);
+
+  const setRoutineSchedule = useCallback(
+    (
+      routineId: string,
+      updates: Partial<
+        Pick<RoutineSchedule, "enabled" | "weekdays" | "prepareTime">
+      >,
+    ) => {
+      setState((s) =>
+        s
+          ? {
+              ...s,
+              routines: s.routines.map((routine) =>
+                routine.id === routineId
+                  ? {
+                      ...routine,
+                      schedule: { ...routine.schedule, ...updates },
+                      updatedAt: nowIso(),
+                    }
+                  : routine,
+              ),
+            }
+          : s,
+      );
+    },
+    [],
+  );
 
   const applyRoutine = useCallback(
     (routineId: string): ApplyRoutineResult => {
@@ -540,6 +609,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeRoutineItem,
       toggleRoutineItem,
       renameRoutine,
+      setRoutineSchedule,
       applyRoutine,
       getRoutine,
       setNotificationsEnabled,
@@ -566,6 +636,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       removeRoutineItem,
       toggleRoutineItem,
       renameRoutine,
+      setRoutineSchedule,
       applyRoutine,
       getRoutine,
       setNotificationsEnabled,

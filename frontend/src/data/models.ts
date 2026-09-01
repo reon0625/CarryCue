@@ -3,7 +3,7 @@
 // device. Bump SCHEMA_VERSION and extend `repository.ts`'s migration logic
 // whenever this shape changes.
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // Trigger — when a Carry item should remind the user.
@@ -49,6 +49,23 @@ export type RoutineItem = {
   completed: boolean;
 };
 
+// Local recurring preparation schedule. Weekdays use JavaScript's getDay()
+// convention: 0 = Sunday through 6 = Saturday.
+export type RoutineSchedule = {
+  enabled: boolean;
+  weekdays: number[];
+  prepareTime: string; // local 24-hour "HH:mm"
+  // Explicit idempotency marker, for example "<routineId>:2026-09-01".
+  lastPreparedOccurrenceKey: string | null;
+};
+
+export const createDefaultRoutineSchedule = (): RoutineSchedule => ({
+  enabled: false,
+  weekdays: [1, 2, 3, 4, 5],
+  prepareTime: "07:30",
+  lastPreparedOccurrenceKey: null,
+});
+
 export type Routine = {
   id: string;
   name: string;
@@ -57,6 +74,7 @@ export type Routine = {
   // Gym). Deleting a seeded routine does not bring it back on next launch,
   // and seeded routines never count against the Free "custom routine" limit.
   isSeed: boolean;
+  schedule: RoutineSchedule;
   createdAt: string;
   updatedAt: string;
 };
@@ -100,6 +118,10 @@ export type AppState = {
   items: CarryItem[];
   routines: Routine[];
   usageStats: UsageStats;
+  departure: {
+    status: "home" | "departed";
+    departedAt: string | null;
+  };
   settings: AppSettings;
 };
 

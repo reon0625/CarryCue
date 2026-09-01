@@ -11,10 +11,18 @@ import {
   ItemSource,
   Routine,
   RoutineItem,
+  RoutineSchedule,
   SCHEMA_VERSION,
   UsageStats,
+  createDefaultRoutineSchedule,
   normalizeName,
 } from "@/src/data/models";
+import {
+  DepartureLifecycleEvent,
+  DepartureLifecycleResult,
+  applyDepartureLifecycleEvent,
+  evaluateDueScheduledRoutines,
+} from "@/src/services/routineScheduling";
 
 const STORAGE_KEY = "carrycue_store_v2";
 // Step 1's persistence key — read once for a best-effort migration, never
@@ -22,6 +30,18 @@ const STORAGE_KEY = "carrycue_store_v2";
 const LEGACY_KEY_V1 = "carrycue_state_v1";
 
 const nowIso = () => new Date().toISOString();
+const stateChangeListeners = new Set<(state: AppState) => void>();
+
+export function subscribeToRepositoryStateChanges(
+  listener: (state: AppState) => void,
+): () => void {
+  stateChangeListeners.add(listener);
+  return () => stateChangeListeners.delete(listener);
+}
+
+function notifyRepositoryStateChange(state: AppState): void {
+  stateChangeListeners.forEach((listener) => listener(state));
+}
 
 function mkItem(name: string, source: ItemSource = "quickAdd"): CarryItem {
   const ts = nowIso();
@@ -47,6 +67,7 @@ function mkSeedRoutine(name: string, itemNames: string[]): Routine {
     name,
     items: itemNames.map(mkRoutineItem),
     isSeed: true,
+    schedule: createDefaultRoutineSchedule(),
     createdAt: ts,
     updatedAt: ts,
   };
@@ -89,6 +110,10 @@ export function buildInitialState(): AppState {
     items,
     routines,
     usageStats,
+    departure: {
+      status: "home",
+      departedAt: null,
+    },
     settings: {
       onboardingCompleted: false,
       leaveTime: "8:30",
@@ -116,7 +141,31 @@ function dedupeByName<T extends { name: string }>(list: T[]): T[] {
 
 // Fills in any fields missing from an older/partial persisted payload with
 // defaults, so adding a new field later doesn't crash existing installs.
-function normalizeLoaded(state: Partial<AppState>): AppState {
+function normalizeRoutineSchedule(
+  schedule: Partial<RoutineSchedule> | undefined,
+): RoutineSchedule {
+  const defaults = createDefaultRoutineSchedule();
+  const weekdays = Array.isArray(schedule?.weekdays)
+    ? [...new Set(schedule.weekdays)].filter(
+        (day) => Number.isInteger(day) && day >= 0 && day <= 6,
+      )
+    : defaults.weekdays;
+  return {
+    enabled: schedule?.enabled === true,
+    weekdays,
+    prepareTime:
+      typeof schedule?.prepareTime === "string" &&
+      /^\d{2}:\d{2}$/.test(schedule.prepareTime)
+        ? schedule.prepareTime
+        : defaults.prepareTime,
+    lastPreparedOccurrenceKey:
+      typeof schedule?.lastPreparedOccurrenceKey === "string"
+        ? schedule.lastPreparedOccurrenceKey
+        : null,
+  };
+}
+
+export function normalizePersistedState(state: Partial<AppState>): AppState {
   const fresh = buildInitialState();
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -125,8 +174,19 @@ function normalizeLoaded(state: Partial<AppState>): AppState {
       ...r,
       isSeed: r.isSeed ?? false,
       items: dedupeByName(r.items ?? []),
+      schedule: normalizeRoutineSchedule(
+        (r as Routine & { schedule?: RoutineSchedule }).schedule,
+      ),
     })),
     usageStats: state.usageStats ?? {},
+    departure: {
+      status: state.departure?.status === "departed" ? "departed" : "home",
+      departedAt:
+        state.departure?.status === "departed" &&
+        typeof state.departure.departedAt === "string"
+          ? state.departure.departedAt
+          : null,
+    },
     settings: { ...fresh.settings, ...(state.settings ?? {}) },
   };
 }
@@ -163,6 +223,7 @@ async function migrateFromV1(): Promise<AppState | null> {
         completed: !!it.done,
       })),
       isSeed: true,
+      schedule: createDefaultRoutineSchedule(),
       createdAt: ts,
       updatedAt: ts,
     }));
@@ -179,11 +240,15 @@ async function migrateFromV1(): Promise<AppState | null> {
       };
     });
 
-    return normalizeLoaded({
+    return normalizePersistedState({
       schemaVersion: SCHEMA_VERSION,
       items,
       routines,
       usageStats,
+      departure: {
+        status: "home",
+        departedAt: null,
+      },
       settings: {
         onboardingCompleted: !!old.hasLaunched,
         leaveTime: old.leaveTime ?? "8:30",
@@ -205,7 +270,7 @@ export async function loadState(): Promise<AppState> {
   const raw = await storage.getItem<string | null>(STORAGE_KEY, null);
   if (raw) {
     try {
-      return normalizeLoaded(JSON.parse(raw) as Partial<AppState>);
+      return normalizePersistedState(JSON.parse(raw) as Partial<AppState>);
     } catch {
       // Corrupt payload — fall through to migration/fresh-install below.
     }
@@ -230,6 +295,31 @@ export async function wipeAllData(): Promise<AppState> {
   return fresh;
 }
 
+export async function prepareDueScheduledRoutines(
+  now: Date = new Date(),
+): Promise<AppState> {
+  const current = await loadState();
+  const result = evaluateDueScheduledRoutines(current, now, uid);
+  if (result.state !== current) {
+    await saveState(result.state);
+    notifyRepositoryStateChange(result.state);
+  }
+  return result.state;
+}
+
+export async function persistDepartureLifecycleEvent(
+  event: DepartureLifecycleEvent,
+  now: Date = new Date(),
+): Promise<DepartureLifecycleResult> {
+  const current = await loadState();
+  const result = applyDepartureLifecycleEvent(current, event, now);
+  if (result.state !== current) {
+    await saveState(result.state);
+    notifyRepositoryStateChange(result.state);
+  }
+  return result;
+}
+
 // Background-task-safe state reader.
 //
 // Called from the geofencing background task where React context and the
@@ -248,7 +338,9 @@ export async function loadStateForBackgroundTask(): Promise<{
     // unwraps the outer layer; we still need one JSON.parse to get the object.
     const rawJson = await storage.getItem<string | null>(STORAGE_KEY, null);
     if (!rawJson) return null;
-    const state = JSON.parse(rawJson) as Partial<AppState>;
+    const state = normalizePersistedState(
+      JSON.parse(rawJson) as Partial<AppState>,
+    );
     const activeItems = (state.items ?? []).filter(
       (item) =>
         !item.completed && item.trigger?.type === "leavingHome",

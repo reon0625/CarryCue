@@ -1,4 +1,8 @@
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import DateTimePicker, {
+  DateTimePickerAndroid,
+} from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -6,6 +10,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -19,7 +24,37 @@ import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { TextButton } from "@/src/components/TextButton";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { useStore } from "@/src/state/store";
-import { colors, font, spacing, type } from "@/src/theme";
+import { colors, font, radius, spacing, type } from "@/src/theme";
+
+const WEEKDAYS = [
+  { label: "M", value: 1 },
+  { label: "T", value: 2 },
+  { label: "W", value: 3 },
+  { label: "T", value: 4 },
+  { label: "F", value: 5 },
+  { label: "S", value: 6 },
+  { label: "S", value: 0 },
+];
+
+function dateForPrepareTime(value: string): Date {
+  const [hour, minute] = value.split(":").map(Number);
+  const date = new Date();
+  date.setHours(hour || 0, minute || 0, 0, 0);
+  return date;
+}
+
+function prepareTimeFromDate(value: Date): string {
+  return `${String(value.getHours()).padStart(2, "0")}:${String(
+    value.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
+function prepareTimeLabel(value: string): string {
+  return dateForPrepareTime(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export default function RoutineDetail() {
   const router = useRouter();
@@ -31,6 +66,7 @@ export default function RoutineDetail() {
     removeRoutineItem,
     addRoutineItem,
     renameRoutine,
+    setRoutineSchedule,
     applyRoutine,
     deleteRoutine,
   } = useStore();
@@ -39,6 +75,7 @@ export default function RoutineDetail() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [itemText, setItemText] = useState("");
   const [nameText, setNameText] = useState(routine?.name ?? "");
@@ -99,6 +136,35 @@ export default function RoutineDetail() {
     router.dismissTo("/routines");
   };
 
+  const toggleWeekday = (weekday: number) => {
+    const selected = routine.schedule.weekdays.includes(weekday);
+    setRoutineSchedule(routine.id, {
+      weekdays: selected
+        ? routine.schedule.weekdays.filter((day) => day !== weekday)
+        : [...routine.schedule.weekdays, weekday],
+    });
+  };
+
+  const setPrepareTime = (selected: Date | undefined) => {
+    if (!selected) return;
+    setRoutineSchedule(routine.id, {
+      prepareTime: prepareTimeFromDate(selected),
+    });
+  };
+
+  const openPrepareTime = () => {
+    const value = dateForPrepareTime(routine.schedule.prepareTime);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value,
+        mode: "time",
+        onChange: (_event, selected) => setPrepareTime(selected),
+      });
+      return;
+    }
+    if (Platform.OS === "ios") setTimePickerOpen(true);
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScreenHeader
@@ -141,6 +207,82 @@ export default function RoutineDetail() {
           icon="add"
           onPress={() => setAddOpen(true)}
         />
+
+        <View style={styles.scheduleSection}>
+          <Text style={styles.sectionLabel}>Schedule</Text>
+          <View style={styles.scheduleCard}>
+            <View style={styles.scheduleToggleRow}>
+              <Text style={styles.scheduleTitle}>Prepare automatically</Text>
+              <Switch
+                testID="routine-schedule-toggle"
+                value={routine.schedule.enabled}
+                onValueChange={(enabled) =>
+                  setRoutineSchedule(routine.id, { enabled })
+                }
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor={colors.surface}
+              />
+            </View>
+
+            {routine.schedule.enabled ? (
+              <View testID="routine-schedule-enabled">
+                <View style={styles.scheduleDivider} />
+                <Text style={styles.fieldLabel}>Days</Text>
+                <View style={styles.weekdays}>
+                  {WEEKDAYS.map((weekday, index) => {
+                    const selected = routine.schedule.weekdays.includes(
+                      weekday.value,
+                    );
+                    return (
+                      <Pressable
+                        key={`${weekday.value}-${index}`}
+                        testID={`routine-weekday-${weekday.value}`}
+                        onPress={() => toggleWeekday(weekday.value)}
+                        style={({ pressed }) => [
+                          styles.weekday,
+                          selected && styles.weekdaySelected,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.weekdayText,
+                            selected && styles.weekdayTextSelected,
+                          ]}
+                        >
+                          {weekday.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Pressable
+                  testID="routine-prepare-time"
+                  onPress={openPrepareTime}
+                  style={({ pressed }) => [
+                    styles.prepareRow,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.prepareLabel}>Prepare at</Text>
+                  <View style={styles.prepareValue}>
+                    <Text style={styles.prepareTime}>
+                      {prepareTimeLabel(routine.schedule.prepareTime)}
+                    </Text>
+                    {Platform.OS !== "web" ? (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={17}
+                        color={colors.disabled}
+                      />
+                    ) : null}
+                  </View>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
@@ -197,6 +339,29 @@ export default function RoutineDetail() {
         </View>
       </BottomSheet>
 
+      <BottomSheet
+        visible={timePickerOpen}
+        onClose={() => setTimePickerOpen(false)}
+        testID="routine-time-picker-sheet"
+      >
+        <Text style={styles.sheetTitle}>Prepare at</Text>
+        {Platform.OS === "ios" ? (
+          <DateTimePicker
+            testID="routine-time-picker"
+            value={dateForPrepareTime(routine.schedule.prepareTime)}
+            mode="time"
+            display="spinner"
+            onChange={(_event, selected) => setPrepareTime(selected)}
+          />
+        ) : null}
+        <View style={styles.sheetButton}>
+          <PrimaryButton
+            title="Done"
+            onPress={() => setTimePickerOpen(false)}
+          />
+        </View>
+      </BottomSheet>
+
       <UpgradeSheet
         visible={upgradeVisible}
         reason="items"
@@ -243,6 +408,97 @@ const styles = StyleSheet.create({
   },
   list: {
     marginBottom: spacing.xs,
+  },
+  pressed: {
+    opacity: 0.6,
+  },
+  scheduleSection: {
+    marginTop: spacing.lg,
+  },
+  sectionLabel: {
+    fontSize: type.sectionLabel,
+    fontWeight: font.semibold,
+    color: colors.textSecondary,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: spacing.sm,
+  },
+  scheduleCard: {
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+  },
+  scheduleToggleRow: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  scheduleTitle: {
+    fontSize: type.secondary + 1,
+    fontWeight: font.medium,
+    color: colors.textPrimary,
+  },
+  scheduleDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+  },
+  fieldLabel: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  weekdays: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.xs,
+  },
+  weekday: {
+    flex: 1,
+    aspectRatio: 1,
+    maxWidth: 38,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.background,
+  },
+  weekdaySelected: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  weekdayText: {
+    fontSize: 13,
+    fontWeight: font.semibold,
+    color: colors.textSecondary,
+  },
+  weekdayTextSelected: {
+    color: colors.surface,
+  },
+  prepareRow: {
+    minHeight: 54,
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  prepareLabel: {
+    fontSize: type.secondary + 1,
+    color: colors.textPrimary,
+  },
+  prepareValue: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  prepareTime: {
+    fontSize: type.secondary + 1,
+    fontWeight: font.semibold,
+    color: colors.accent,
   },
   footer: {
     paddingHorizontal: spacing.lg,

@@ -46,7 +46,10 @@ import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
 
 import { CarryItem } from "@/src/data/models";
-import { loadStateForBackgroundTask } from "@/src/data/repository";
+import {
+  persistDepartureLifecycleEvent,
+  prepareDueScheduledRoutines,
+} from "@/src/data/repository";
 import { buildDepartureReminder } from "@/src/services/departureReminder";
 import { REMINDER_CHANNEL_ID } from "@/src/services/notifications";
 import {
@@ -86,19 +89,39 @@ export const isGeofencingAvailable =
 // ── Background event handlers ─────────────────────────────────────────────────
 
 async function handleEnterEvent(): Promise<void> {
-  await processEnterEvent(geoStorage, Date.now());
+  const now = Date.now();
+  await processEnterEvent(geoStorage, now);
+  // Initial/duplicate ENTER callbacks are harmless: cleanup only runs when a
+  // previously accepted real EXIT persisted the "departed" lifecycle state.
+  await persistDepartureLifecycleEvent("realEnter", new Date(now));
 }
 
 async function handleExitEvent(): Promise<void> {
   const now = Date.now();
-  const loaded = await loadStateForBackgroundTask();
-  const reminder = buildDepartureReminder(
-    loaded?.activeItems ?? [],
-    loaded?.usageStats ?? {},
+  // Catch a missed scheduled Routine occurrence before selecting notification
+  // items. This is persisted and idempotent, so terminated-app EXIT handling
+  // includes due Routine items without relying on an in-memory timer.
+  const preparedState = await prepareDueScheduledRoutines(new Date(now));
+  const activeItems = preparedState.items.filter(
+    (item) =>
+      !item.completed && item.trigger.type === "leavingHome",
   );
-  const activeItems = reminder?.items ?? [];
+  const reminder = buildDepartureReminder(
+    activeItems,
+    preparedState.usageStats,
+  );
+  const rankedActiveItems = reminder?.items ?? [];
 
-  const result = await processExitEvent(geoStorage, activeItems, now);
+  const result = await processExitEvent(geoStorage, rankedActiveItems, now);
+
+  // A valid real departure is either a notifying EXIT or an accepted EXIT
+  // with no active items. Grace/cooldown/disarmed callbacks do not start one.
+  if (
+    result.shouldNotify ||
+    (!result.shouldNotify && result.reason === "no-items")
+  ) {
+    await persistDepartureLifecycleEvent("realExit", new Date(now));
+  }
 
   if (!result.shouldNotify || !reminder) return;
 
@@ -466,15 +489,20 @@ export async function simulateHomeExit(
 ): Promise<{ notificationSent: boolean; reason?: string }> {
   if (!isGeofencingAvailable)
     return { notificationSent: false, reason: "unavailable-on-web" };
-  const loaded = await loadStateForBackgroundTask();
+  const now = Date.now();
+  // Explicit non-destructive event: the pure lifecycle transform returns the
+  // current state unchanged and repository persistence therefore performs no write.
+  const lifecycle = await persistDepartureLifecycleEvent(
+    "simulatedExit",
+    new Date(now),
+  );
   const reminder = buildDepartureReminder(
     activeItems,
-    loaded?.usageStats ?? {},
+    lifecycle.state.usageStats,
   );
   if (!reminder)
     return { notificationSent: false, reason: "no-active-items" };
 
-  const now = Date.now();
   const { title, body, items } = reminder;
 
   const notifId = await Notifications.scheduleNotificationAsync({
