@@ -116,6 +116,9 @@ export default function RootLayout() {
                 name="forgot"
                 options={{ presentation: "modal" }}
               />
+              <Stack.Screen name="shortcuts" />
+              {/* add.tsx handles carrycue://add deep links — no animation so it's invisible */}
+              <Stack.Screen name="add" options={{ animation: "none" }} />
             </Stack>
           </StoreProvider>
         </KeyboardProvider>

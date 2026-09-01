@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
@@ -15,6 +15,7 @@ import { TextButton } from "@/src/components/TextButton";
 import { Toast } from "@/src/components/Toast";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { CarryItem } from "@/src/data/models";
+import { consumePendingQuickAdd } from "@/src/services/linkHandling";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 import { formatReminderLabel } from "@/src/utils/formatReminder";
@@ -24,12 +25,28 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const { items, frequentlyUsed, leaveTime, toggleItem, addItem, removeItem, restoreItem } = useStore();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddPrefill, setQuickAddPrefill] = useState("");
   const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // undo state: the deleted item + its original index in the items array
   const [undoPayload, setUndoPayload] = useState<{ item: CarryItem; index: number } | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Deep-link / shortcut intent ───────────────────────────────────────────
+  // Fires every time home gains focus so it catches both the cold-start
+  // redirect (via add.tsx) and the warm-start navigate (via shortcuts.tsx).
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      consumePendingQuickAdd().then((intent) => {
+        if (!intent || !active) return;
+        setQuickAddPrefill(intent.text ?? "");
+        setQuickAddOpen(true);
+      });
+      return () => { active = false; };
+    }, []),
+  );
 
   const flash = useCallback((msg: string) => {
     // Don't interrupt an active Undo toast with a plain flash
@@ -209,9 +226,13 @@ export default function Home() {
 
       <QuickAddSheet
         visible={quickAddOpen}
-        onClose={() => setQuickAddOpen(false)}
+        onClose={() => {
+          setQuickAddOpen(false);
+          setQuickAddPrefill("");
+        }}
         frequentlyUsed={frequentlyUsed}
         onLimitReached={() => setUpgradeVisible(true)}
+        prefillText={quickAddPrefill}
       />
 
       <UpgradeSheet

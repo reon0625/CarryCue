@@ -24,11 +24,14 @@ export function QuickAddSheet({
   onClose,
   frequentlyUsed,
   onLimitReached,
+  prefillText,
 }: {
   visible: boolean;
   onClose: () => void;
   frequentlyUsed: string[];
   onLimitReached?: () => void;
+  /** Optional text pre-populated from a deep-link or shortcut (carrycue://add?text=…). */
+  prefillText?: string;
 }) {
   const router = useRouter();
   const { addItem, items, limits } = useStore();
@@ -39,7 +42,8 @@ export function QuickAddSheet({
 
   useEffect(() => {
     if (visible) {
-      setText("");
+      // Pre-populate from deep-link or shortcut; fall back to empty.
+      setText(prefillText ?? "");
       setRemind("leaving");
       setDupMsg("");
       // Focus after the open animation so the native keyboard reliably
@@ -48,7 +52,7 @@ export function QuickAddSheet({
       const t = setTimeout(() => inputRef.current?.focus(), 350);
       return () => clearTimeout(t);
     }
-  }, [visible]);
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = () => {
     const trimmed = text.trim();

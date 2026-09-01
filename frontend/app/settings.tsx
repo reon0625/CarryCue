@@ -29,6 +29,10 @@ import {
   simulateHomeExit,
   unregisterHomeGeofence,
 } from "@/src/services/geofencing";
+import {
+  LinkDiagnostics,
+  readLinkDiagnostics,
+} from "@/src/services/linkHandling";
 import { TextButton } from "@/src/components/TextButton";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
@@ -107,6 +111,8 @@ export default function Settings() {
   const [diagLoading, setDiagLoading] = useState(false);
   const [geoDiag, setGeoDiag] = useState<GeofencingDiagnostics | null>(null);
   const [geoDiagLoading, setGeoDiagLoading] = useState(false);
+  const [linkDiag, setLinkDiag] = useState<LinkDiagnostics | null>(null);
+  const [linkDiagLoading, setLinkDiagLoading] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flash = useCallback((msg: string) => {
@@ -309,6 +315,22 @@ export default function Settings() {
     }
   }, [items, home?.latitude, home?.longitude, flash]);
 
+  // ── Link diagnostics (dev only) ────────────────────────────────────────────
+
+  const handleLinkDiagnostics = useCallback(async () => {
+    if (!__DEV__) return;
+    setLinkDiagLoading(true);
+    try {
+      const diag = await readLinkDiagnostics();
+      setLinkDiag(diag);
+      flash(diag ? "Link diagnostics loaded" : "No link received yet");
+    } catch (e: unknown) {
+      flash(`Link diag error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setLinkDiagLoading(false);
+    }
+  }, [flash]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScreenHeader title="Settings" showBack />
@@ -340,7 +362,7 @@ export default function Settings() {
             onPress={() => router.push("/routines")}
           />
           <View style={styles.sep} />
-          <Row testID="settings-quick-add" label="Quick Add shortcuts" />
+          <Row testID="settings-quick-add" label="Quick Add shortcuts" onPress={() => router.push("/shortcuts")} />
           <View style={styles.sep} />
           <Row testID="settings-privacy" label="Privacy" />
           <View style={styles.sep} />
@@ -518,6 +540,28 @@ export default function Settings() {
                     <Text style={diagStyles.settingsBtnText}>Open iPhone Settings →</Text>
                   </Pressable>
                 ) : null}
+              </View>
+            ) : null}
+            {/* ── Link Diagnostics ─────────────────────────────────────────── */}
+            <View style={styles.sep} />
+            <Row
+              testID="dev-link-diagnostics"
+              label={linkDiagLoading ? "Checking link…" : "Link diagnostics"}
+              onPress={handleLinkDiagnostics}
+            />
+            {linkDiag ? (
+              <View style={diagStyles.block}>
+                <View style={diagStyles.titleRow}>
+                  <Text style={diagStyles.title}>Link Diagnostics</Text>
+                  {linkDiagLoading ? (
+                    <ActivityIndicator size="small" color="#888" />
+                  ) : null}
+                </View>
+                <DiagRow label="url" value={linkDiag.url} />
+                <DiagRow label="path" value={linkDiag.path} />
+                <DiagRow label="text" value={linkDiag.text ?? "none"} />
+                <DiagRow label="opened_qa" value={String(linkDiag.openedQuickAdd)} />
+                <DiagRow label="timestamp" value={linkDiag.timestamp} />
               </View>
             ) : null}
           </View>
