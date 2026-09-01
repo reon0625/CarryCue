@@ -1,4 +1,4 @@
-// Quick Add Shortcuts — informational screen + testable entry point.
+// Quick Add Shortcuts — Step 4B system-launch setup + testable entry point.
 // Opened from Settings → Quick Add shortcuts.
 
 import { Ionicons } from "@expo/vector-icons";
@@ -79,26 +79,60 @@ export default function Shortcuts() {
 
         {/* ── Platform instructions ──────────────────────────────────────── */}
         {Platform.OS !== "android" ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>iPhone</Text>
-            <Step
-              icon="lock-closed-outline"
-              text="Action Button / Lock Screen: set the URL to carrycue://add"
-            />
-            <RowDivider />
-            <Step
-              icon="arrow-forward-circle-outline"
-              text="iOS Shortcuts app: add an \u2018Open URLs\u2019 action → carrycue://add"
-            />
-            <RowDivider />
-            <Step
-              icon="share-outline"
-              text="Home Screen: save carrycue://add as a Safari bookmark → Add to Home Screen"
-            />
-            <Text style={styles.sectionNote}>
-              Action Button control and Lock Screen widget require a future app update.
-            </Text>
-          </View>
+          <>
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Apple Shortcuts</Text>
+              <Step
+                icon="add-circle-outline"
+                text="In Shortcuts, tap + and name it ‘CarryCue Quick Add’."
+              />
+              <RowDivider />
+              <Step
+                icon="link-outline"
+                text="Add a ‘URL’ action and enter carrycue://add."
+              />
+              <RowDivider />
+              <Step
+                icon="arrow-forward-circle-outline"
+                text="Add ‘Open URLs’, tap Done, then run it once to test."
+              />
+              <Text style={styles.sectionNote}>
+                To start with text, use carrycue://add?text=Passport instead. Quick Add will still wait for you to save.
+              </Text>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Action Button</Text>
+              <Step
+                icon="phone-portrait-outline"
+                text="Open iPhone Settings → Action Button."
+              />
+              <RowDivider />
+              <Step
+                icon="flash-outline"
+                text="Choose Shortcut, then select ‘CarryCue Quick Add’."
+              />
+              <Text style={styles.sectionNote}>
+                Press and hold the Action Button to open Quick Add.
+              </Text>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Lock Screen</Text>
+              <Step
+                icon="lock-closed-outline"
+                text="Touch and hold the Lock Screen, then tap Customize → Lock Screen."
+              />
+              <RowDivider />
+              <Step
+                icon="options-outline"
+                text="Replace a bottom control, choose Shortcut, then select ‘CarryCue Quick Add’."
+              />
+              <Text style={styles.sectionNote}>
+                Available on supported iOS versions. This uses Apple’s Shortcuts control; a native CarryCue widget is not included yet.
+              </Text>
+            </View>
+          </>
         ) : (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Android</Text>
