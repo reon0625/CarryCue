@@ -45,7 +45,9 @@ import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 import { Platform } from "react-native";
 
+import { CarryItem } from "@/src/data/models";
 import { loadStateForBackgroundTask } from "@/src/data/repository";
+import { buildDepartureReminder } from "@/src/services/departureReminder";
 import { REMINDER_CHANNEL_ID } from "@/src/services/notifications";
 import {
   clearRegistrationState,
@@ -90,18 +92,18 @@ async function handleEnterEvent(): Promise<void> {
 async function handleExitEvent(): Promise<void> {
   const now = Date.now();
   const loaded = await loadStateForBackgroundTask();
-  const activeItems = loaded?.activeItems ?? [];
+  const reminder = buildDepartureReminder(
+    loaded?.activeItems ?? [],
+    loaded?.usageStats ?? {},
+  );
+  const activeItems = reminder?.items ?? [];
 
   const result = await processExitEvent(geoStorage, activeItems, now);
 
-  if (!result.shouldNotify) return;
+  if (!result.shouldNotify || !reminder) return;
 
   // Valid departure with active items — schedule the notification.
-  const title = "Before you go";
-  const body =
-    activeItems.length === 1
-      ? `Don't forget ${activeItems[0].name}.`
-      : `${activeItems.length} things to remember.`;
+  const { title, body } = reminder;
 
   const notifId = await Notifications.scheduleNotificationAsync({
     content: { title, body, sound: "default", data: { screen: "home" } },
@@ -460,19 +462,20 @@ export async function healGeofenceOnStartup(homeCoords: {
 // Real OS geofence behaviour still requires a device build + movement.
 
 export async function simulateHomeExit(
-  activeItems: { name: string }[],
+  activeItems: CarryItem[],
 ): Promise<{ notificationSent: boolean; reason?: string }> {
   if (!isGeofencingAvailable)
     return { notificationSent: false, reason: "unavailable-on-web" };
-  if (activeItems.length === 0)
+  const loaded = await loadStateForBackgroundTask();
+  const reminder = buildDepartureReminder(
+    activeItems,
+    loaded?.usageStats ?? {},
+  );
+  if (!reminder)
     return { notificationSent: false, reason: "no-active-items" };
 
   const now = Date.now();
-  const title = "Before you go";
-  const body =
-    activeItems.length === 1
-      ? `Don't forget ${activeItems[0].name}.`
-      : `${activeItems.length} things to remember.`;
+  const { title, body, items } = reminder;
 
   const notifId = await Notifications.scheduleNotificationAsync({
     content: { title, body, sound: "default", data: { screen: "home" } },
@@ -490,7 +493,7 @@ export async function simulateHomeExit(
       eventType: "exit",
       timestamp: new Date(now).toISOString(),
       notificationSent: true,
-      itemCount: activeItems.length,
+      itemCount: items.length,
       simulated: true,
     }),
   );

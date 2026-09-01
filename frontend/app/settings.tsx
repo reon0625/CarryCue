@@ -294,9 +294,7 @@ export default function Settings() {
       const leavingItems = items.filter(
         (i) => !i.completed && i.trigger.type === "leavingHome",
       );
-      const result = await simulateHomeExit(
-        leavingItems.map((i) => ({ name: i.name })),
-      );
+      const result = await simulateHomeExit(leavingItems);
       if (result.notificationSent) {
         flash(`Simulated exit — notification sent (${leavingItems.length} items)`);
       } else {

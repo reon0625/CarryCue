@@ -233,13 +233,14 @@ export async function wipeAllData(): Promise<AppState> {
 // Background-task-safe state reader.
 //
 // Called from the geofencing background task where React context and the
-// Zustand/Context store are unavailable.  Returns only the minimal slice
-// the task needs — active "leavingHome" items — and keeps all schema
-// parsing/migration responsibility inside this module.
+// Zustand/Context store are unavailable. Returns the active "leavingHome"
+// items plus usage history needed for deterministic forgotten-item ranking,
+// while keeping schema parsing/migration responsibility inside this module.
 //
 // Returns null when the stored state is absent or cannot be parsed.
 export async function loadStateForBackgroundTask(): Promise<{
-  activeItems: { name: string }[];
+  activeItems: CarryItem[];
+  usageStats: UsageStats;
 } | null> {
   try {
     // storage.setItem JSON.stringifies its value, so the raw bytes in
@@ -248,13 +249,11 @@ export async function loadStateForBackgroundTask(): Promise<{
     const rawJson = await storage.getItem<string | null>(STORAGE_KEY, null);
     if (!rawJson) return null;
     const state = JSON.parse(rawJson) as Partial<AppState>;
-    const activeItems = (state.items ?? [])
-      .filter(
-        (item) =>
-          !item.completed && item.trigger?.type === "leavingHome",
-      )
-      .map((item) => ({ name: item.name }));
-    return { activeItems };
+    const activeItems = (state.items ?? []).filter(
+      (item) =>
+        !item.completed && item.trigger?.type === "leavingHome",
+    );
+    return { activeItems, usageStats: state.usageStats ?? {} };
   } catch {
     return null;
   }
