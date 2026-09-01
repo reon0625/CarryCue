@@ -9,6 +9,7 @@ import {
   AppState,
   CarryItem,
   ItemSource,
+  OneTimePlan,
   Routine,
   RoutineItem,
   RoutineSchedule,
@@ -17,6 +18,11 @@ import {
   createDefaultRoutineSchedule,
   normalizeName,
 } from "@/src/data/models";
+import {
+  evaluateDueOneTimePlans,
+  isValidLocalDateKey,
+  isValidPrepareTime,
+} from "@/src/services/oneTimeScheduling";
 import {
   DepartureLifecycleEvent,
   DepartureLifecycleResult,
@@ -109,6 +115,7 @@ export function buildInitialState(): AppState {
     schemaVersion: SCHEMA_VERSION,
     items,
     routines,
+    oneTimePlans: [],
     usageStats,
     departure: {
       status: "home",
@@ -165,6 +172,42 @@ function normalizeRoutineSchedule(
   };
 }
 
+function normalizeOneTimePlan(plan: Partial<OneTimePlan>): OneTimePlan | null {
+  const prepareTime = plan.prepareTime ?? null;
+  if (
+    typeof plan.id !== "string" ||
+    typeof plan.name !== "string" ||
+    !plan.name.trim() ||
+    !isValidLocalDateKey(plan.scheduledDate ?? "") ||
+    !isValidPrepareTime(prepareTime)
+  ) {
+    return null;
+  }
+  const createdAt =
+    typeof plan.createdAt === "string" ? plan.createdAt : nowIso();
+  const status =
+    plan.status === "consumed" || plan.status === "expired"
+      ? plan.status
+      : "pending";
+  return {
+    id: plan.id,
+    name: plan.name.trim(),
+    scheduledDate: plan.scheduledDate as string,
+    prepareTime,
+    status,
+    consumedAt:
+      status === "consumed" && typeof plan.consumedAt === "string"
+        ? plan.consumedAt
+        : null,
+    expiredAt:
+      status === "expired" && typeof plan.expiredAt === "string"
+        ? plan.expiredAt
+        : null,
+    createdAt,
+    updatedAt: typeof plan.updatedAt === "string" ? plan.updatedAt : createdAt,
+  };
+}
+
 export function normalizePersistedState(state: Partial<AppState>): AppState {
   const fresh = buildInitialState();
   return {
@@ -178,6 +221,9 @@ export function normalizePersistedState(state: Partial<AppState>): AppState {
         (r as Routine & { schedule?: RoutineSchedule }).schedule,
       ),
     })),
+    oneTimePlans: (state.oneTimePlans ?? [])
+      .map((plan) => normalizeOneTimePlan(plan))
+      .filter((plan): plan is OneTimePlan => plan !== null),
     usageStats: state.usageStats ?? {},
     departure: {
       status: state.departure?.status === "departed" ? "departed" : "home",
@@ -244,6 +290,7 @@ async function migrateFromV1(): Promise<AppState | null> {
       schemaVersion: SCHEMA_VERSION,
       items,
       routines,
+      oneTimePlans: [],
       usageStats,
       departure: {
         status: "home",
@@ -295,17 +342,23 @@ export async function wipeAllData(): Promise<AppState> {
   return fresh;
 }
 
-export async function prepareDueScheduledRoutines(
+export async function prepareDueSchedules(
   now: Date = new Date(),
 ): Promise<AppState> {
   const current = await loadState();
-  const result = evaluateDueScheduledRoutines(current, now, uid);
-  if (result.state !== current) {
-    await saveState(result.state);
-    notifyRepositoryStateChange(result.state);
+  // Required deterministic ordering: recurring Routines get first access to
+  // active-item capacity, then one-time plans, then callers rank the reminder.
+  const routineResult = evaluateDueScheduledRoutines(current, now, uid);
+  const oneTimeResult = evaluateDueOneTimePlans(routineResult.state, now, uid);
+  if (oneTimeResult.state !== current) {
+    await saveState(oneTimeResult.state);
+    notifyRepositoryStateChange(oneTimeResult.state);
   }
-  return result.state;
+  return oneTimeResult.state;
 }
+
+// Kept as a compatibility export for existing callers outside this step.
+export const prepareDueScheduledRoutines = prepareDueSchedules;
 
 export async function persistDepartureLifecycleEvent(
   event: DepartureLifecycleEvent,

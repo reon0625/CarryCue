@@ -18,6 +18,7 @@ import {
   CarryLocation,
   EntitlementTier,
   ItemSource,
+  OneTimePlan,
   Routine,
   RoutineSchedule,
   Trigger,
@@ -25,12 +26,19 @@ import {
   normalizeName,
 } from "@/src/data/models";
 import {
-  prepareDueScheduledRoutines,
+  prepareDueSchedules,
   saveState,
   subscribeToRepositoryStateChanges,
   wipeAllData,
 } from "@/src/data/repository";
 import { cancel as cancelNotification, scheduleAt } from "@/src/services/notifications";
+import {
+  deletePendingOneTimePlan,
+  evaluateDueOneTimePlans,
+  isValidLocalDateKey,
+  isValidPrepareTime,
+  updatePendingOneTimePlan,
+} from "@/src/services/oneTimeScheduling";
 
 // Re-exported for screens that only need the shape, not the repository.
 export type { Routine } from "@/src/data/models";
@@ -48,12 +56,17 @@ export type CreateRoutineResult =
 
 export type ApplyRoutineResult = { addedCount: number; limited: boolean };
 
+export type SaveOneTimePlanResult =
+  | { status: "ok"; id: string }
+  | { status: "invalid" };
+
 type StoreValue = {
   hydrated: boolean;
   hasLaunched: boolean;
   leaveTime: string;
   items: CarryItem[];
   routines: Routine[];
+  oneTimePlans: OneTimePlan[];
   frequentlyUsed: string[];
   entitlement: EntitlementTier;
   limits: Limits;
@@ -74,6 +87,14 @@ type StoreValue = {
   // existing item. Screens must call this rather than mutating items
   // directly — it's the only writer of `item.trigger`.
   setItemTrigger: (itemId: string, trigger: Trigger) => void;
+  saveOneTimePlan: (input: {
+    name: string;
+    scheduledDate: string;
+    prepareTime: string | null;
+    planId?: string;
+    removeItemId?: string;
+  }) => SaveOneTimePlanResult;
+  deleteOneTimePlan: (planId: string) => void;
 
   newRoutine: () => CreateRoutineResult;
   deleteRoutine: (routineId: string) => void;
@@ -114,7 +135,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const loaded = await prepareDueScheduledRoutines();
+      const loaded = await prepareDueSchedules();
       setState(loaded);
       loadedRef.current = true;
     })();
@@ -132,7 +153,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       evaluatingSchedulesRef.current = true;
-      prepareDueScheduledRoutines()
+      prepareDueSchedules()
         .then(setState)
         .finally(() => {
           evaluatingSchedulesRef.current = false;
@@ -440,6 +461,81 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const saveOneTimePlan = useCallback(
+    (input: {
+      name: string;
+      scheduledDate: string;
+      prepareTime: string | null;
+      planId?: string;
+      removeItemId?: string;
+    }): SaveOneTimePlanResult => {
+      const trimmed = input.name.trim();
+      if (
+        !trimmed ||
+        !isValidLocalDateKey(input.scheduledDate) ||
+        !isValidPrepareTime(input.prepareTime)
+      ) {
+        return { status: "invalid" };
+      }
+      const current = stateRef.current;
+      if (!current) return { status: "invalid" };
+      const now = new Date();
+      let next = current;
+      let id = input.planId;
+
+      if (id) {
+        next = updatePendingOneTimePlan(
+          next,
+          id,
+          {
+            scheduledDate: input.scheduledDate,
+            prepareTime: input.prepareTime,
+          },
+          now,
+        );
+        if (next === current) return { status: "invalid" };
+      } else {
+        id = uid();
+        const timestamp = now.toISOString();
+        const plan: OneTimePlan = {
+          id,
+          name: trimmed,
+          scheduledDate: input.scheduledDate,
+          prepareTime: input.prepareTime,
+          status: "pending",
+          consumedAt: null,
+          expiredAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+        next = {
+          ...next,
+          items: input.removeItemId
+            ? next.items.filter((item) => item.id !== input.removeItemId)
+            : next.items,
+          oneTimePlans: [plan, ...next.oneTimePlans],
+        };
+      }
+
+      // If the user selects today and the plan is already due, activate it in
+      // the same persisted state transition; future plans remain pending.
+      next = evaluateDueOneTimePlans(next, now, uid).state;
+      stateRef.current = next;
+      setState(next);
+      return { status: "ok", id };
+    },
+    [],
+  );
+
+  const deleteOneTimePlan = useCallback((planId: string) => {
+    setState((current) => {
+      if (!current) return current;
+      const next = deletePendingOneTimePlan(current, planId);
+      stateRef.current = next;
+      return next;
+    });
+  }, []);
+
   const setRoutineSchedule = useCallback(
     (
       routineId: string,
@@ -590,6 +686,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       leaveTime: state?.settings.leaveTime ?? "8:30",
       items: state?.items ?? [],
       routines: state?.routines ?? [],
+      oneTimePlans: state?.oneTimePlans ?? [],
       frequentlyUsed,
       entitlement: state?.settings.entitlement ?? "FREE",
       limits: getLimits(state?.settings.entitlement ?? "FREE"),
@@ -603,6 +700,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       restoreItem,
       recordForgotten,
       setItemTrigger,
+      saveOneTimePlan,
+      deleteOneTimePlan,
       newRoutine,
       deleteRoutine,
       addRoutineItem,
@@ -630,6 +729,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       restoreItem,
       recordForgotten,
       setItemTrigger,
+      saveOneTimePlan,
+      deleteOneTimePlan,
       newRoutine,
       deleteRoutine,
       addRoutineItem,

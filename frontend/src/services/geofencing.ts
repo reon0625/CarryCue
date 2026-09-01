@@ -48,7 +48,7 @@ import { Platform } from "react-native";
 import { CarryItem } from "@/src/data/models";
 import {
   persistDepartureLifecycleEvent,
-  prepareDueScheduledRoutines,
+  prepareDueSchedules,
 } from "@/src/data/repository";
 import { buildDepartureReminder } from "@/src/services/departureReminder";
 import { REMINDER_CHANNEL_ID } from "@/src/services/notifications";
@@ -98,10 +98,9 @@ async function handleEnterEvent(): Promise<void> {
 
 async function handleExitEvent(): Promise<void> {
   const now = Date.now();
-  // Catch a missed scheduled Routine occurrence before selecting notification
-  // items. This is persisted and idempotent, so terminated-app EXIT handling
-  // includes due Routine items without relying on an in-memory timer.
-  const preparedState = await prepareDueScheduledRoutines(new Date(now));
+  // Catch missed recurring and one-time preparation before selecting the
+  // notification. Repository ordering is Routines, then one-time plans.
+  const preparedState = await prepareDueSchedules(new Date(now));
   const activeItems = preparedState.items.filter(
     (item) =>
       !item.completed && item.trigger.type === "leavingHome",

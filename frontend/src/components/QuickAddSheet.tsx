@@ -13,7 +13,6 @@ import { Chip } from "@/src/components/Chip";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { TriggerRow } from "@/src/components/TriggerRow";
-import { normalizeName } from "@/src/data/models";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -34,7 +33,7 @@ export function QuickAddSheet({
   prefillText?: string;
 }) {
   const router = useRouter();
-  const { addItem, items, limits } = useStore();
+  const { addItem } = useStore();
   const [text, setText] = useState("");
   const [remind, setRemind] = useState<Remind>("leaving");
   const [dupMsg, setDupMsg] = useState("");
@@ -90,17 +89,6 @@ export function QuickAddSheet({
   const chooseTimeOrPlace = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const key = normalizeName(trimmed);
-    const isDuplicate = items.some((it) => normalizeName(it.name) === key);
-    if (isDuplicate) {
-      setDupMsg("Already on your list");
-      return;
-    }
-    if (items.length >= limits.maxDepartureItems) {
-      onClose();
-      onLimitReached?.();
-      return;
-    }
     onClose();
     setTimeout(
       () =>
@@ -160,7 +148,7 @@ export function QuickAddSheet({
             <View style={styles.divider} />
             <TriggerRow
               testID="remind-choose"
-              label="Choose time or place"
+              label="Choose time, day or place"
               selected={remind === "choose"}
               onPress={chooseTimeOrPlace}
             />

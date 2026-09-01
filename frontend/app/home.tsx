@@ -14,16 +14,41 @@ import { SectionLabel } from "@/src/components/SectionLabel";
 import { TextButton } from "@/src/components/TextButton";
 import { Toast } from "@/src/components/Toast";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
-import { CarryItem } from "@/src/data/models";
+import { CarryItem, OneTimePlan } from "@/src/data/models";
 import { consumePendingQuickAdd } from "@/src/services/linkHandling";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 import { formatReminderLabel } from "@/src/utils/formatReminder";
 
+function formatPlanDate(plan: OneTimePlan): string {
+  const [year, month, day] = plan.scheduledDate.split("-").map(Number);
+  const label = new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  if (!plan.prepareTime) return label;
+  const [hour, minute] = plan.prepareTime.split(":").map(Number);
+  const time = new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${label} · ${time}`;
+}
+
 export default function Home() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items, frequentlyUsed, leaveTime, toggleItem, addItem, removeItem, restoreItem } = useStore();
+  const {
+    items,
+    oneTimePlans,
+    frequentlyUsed,
+    leaveTime,
+    toggleItem,
+    addItem,
+    removeItem,
+    restoreItem,
+  } = useStore();
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddPrefill, setQuickAddPrefill] = useState("");
   const [upgradeVisible, setUpgradeVisible] = useState(false);
@@ -92,6 +117,7 @@ export default function Home() {
   }, [items]);
 
   const remaining = items.filter((i) => !i.completed).length;
+  const pendingPlans = oneTimePlans.filter((plan) => plan.status === "pending");
   const allDone = items.length > 0 && remaining === 0;
   const isEmpty = items.length === 0;
 
@@ -215,6 +241,34 @@ export default function Home() {
             </View>
           </>
         )}
+
+        {pendingPlans.length > 0 ? (
+          <View style={styles.plannedSection} testID="planned-items-section">
+            <SectionLabel>Planned</SectionLabel>
+            <View style={styles.plannedList}>
+              {pendingPlans.map((plan) => (
+                <Pressable
+                  key={plan.id}
+                  testID={`planned-item-${plan.name}`}
+                  onPress={() =>
+                    router.push({ pathname: "/trigger", params: { planId: plan.id } })
+                  }
+                  style={({ pressed }) => [
+                    styles.plannedRow,
+                    pressed && styles.plannedRowPressed,
+                  ]}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={colors.accent} />
+                  <View style={styles.plannedText}>
+                    <Text style={styles.plannedName}>{plan.name}</Text>
+                    <Text style={styles.plannedDate}>{formatPlanDate(plan)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.disabled} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       <Toast
@@ -295,6 +349,39 @@ const styles = StyleSheet.create({
   },
   frequentSection: {
     marginTop: spacing.lg,
+  },
+  plannedSection: {
+    marginTop: spacing.lg,
+  },
+  plannedList: {
+    marginTop: spacing.xs,
+    gap: spacing.xs,
+  },
+  plannedRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+  },
+  plannedRowPressed: {
+    opacity: 0.6,
+  },
+  plannedText: {
+    flex: 1,
+  },
+  plannedName: {
+    fontSize: type.checklistItem,
+    color: colors.textPrimary,
+  },
+  plannedDate: {
+    fontSize: type.secondary,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   chips: {
     gap: spacing.sm,

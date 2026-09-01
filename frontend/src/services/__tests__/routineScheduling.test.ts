@@ -61,9 +61,10 @@ function state(
   items: CarryItem[] = [],
 ): AppState {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     items,
     routines,
+    oneTimePlans: [],
     usageStats: {},
     departure: { status: "home", departedAt: null },
     settings: {

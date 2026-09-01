@@ -9,6 +9,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -23,6 +24,7 @@ import { Toast } from "@/src/components/Toast";
 import { TriggerRow } from "@/src/components/TriggerRow";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
 import { ItemSource, Trigger as TriggerConfig } from "@/src/data/models";
+import { localDateKey } from "@/src/services/routineScheduling";
 import {
   cancel,
   getPermissionStatus,
@@ -34,7 +36,7 @@ import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 import { formatReminderLabel } from "@/src/utils/formatReminder";
 
-type TriggerType = "leaving" | "time" | "arriving";
+type TriggerType = "leaving" | "time" | "specificDay" | "arriving";
 type TimeChoice = "Later today" | "Tomorrow morning" | "Choose date & time";
 
 export default function Trigger() {
@@ -42,21 +44,35 @@ export default function Trigger() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     itemId?: string;
+    planId?: string;
     draftName?: string;
     draftSource?: string;
   }>();
-  const { locations, addLocation, items, addItemWithTrigger, setItemTrigger } = useStore();
+  const {
+    locations,
+    addLocation,
+    items,
+    oneTimePlans,
+    addItemWithTrigger,
+    setItemTrigger,
+    saveOneTimePlan,
+    deleteOneTimePlan,
+  } = useStore();
 
   // Step 3A: this screen either edits an already-persisted item (`itemId`)
   // or holds a Quick Add draft that is only ever persisted once a reminder
   // here is actually confirmed (see commitSchedule) — never before.
   const item = params.itemId ? items.find((i) => i.id === params.itemId) : undefined;
-  const isDraft = !params.itemId && !!params.draftName;
-  const displayName = item?.name ?? params.draftName ?? "";
+  const plan = params.planId
+    ? oneTimePlans.find((candidate) => candidate.id === params.planId)
+    : undefined;
+  const isDraft = !params.itemId && !params.planId && !!params.draftName;
+  const displayName = item?.name ?? plan?.name ?? params.draftName ?? "";
 
   const [type_, setType] = useState<TriggerType>(() => {
     if (item?.trigger.type === "time") return "time";
     if (item?.trigger.type === "arrivingPlace") return "arriving";
+    if (plan) return "specificDay";
     return "leaving";
   });
   const [timeChoice, setTimeChoice] = useState<TimeChoice>(() =>
@@ -68,6 +84,18 @@ export default function Trigger() {
       : dayjs().add(3, "hour").toDate(),
   );
   const [place, setPlace] = useState(() => item?.trigger.config?.placeName ?? "");
+  const [specificDate, setSpecificDate] = useState<Date>(() =>
+    plan
+      ? dayjs(`${plan.scheduledDate}T12:00:00`).toDate()
+      : dayjs().add(1, "day").startOf("day").hour(12).toDate(),
+  );
+  const [prepareAtEnabled, setPrepareAtEnabled] = useState(
+    () => plan?.prepareTime !== null && plan?.prepareTime !== undefined,
+  );
+  const [prepareAt, setPrepareAt] = useState<Date>(() => {
+    const [hour, minute] = (plan?.prepareTime ?? "08:00").split(":").map(Number);
+    return dayjs().hour(hour).minute(minute).second(0).millisecond(0).toDate();
+  });
   const [locationsOpen, setLocationsOpen] = useState(false);
   const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [itemLimitVisible, setItemLimitVisible] = useState(false);
@@ -136,6 +164,23 @@ export default function Trigger() {
           },
         });
       },
+    });
+  };
+
+  const openAndroidSpecificDatePicker = () => {
+    DateTimePickerAndroid.open({
+      value: specificDate,
+      mode: "date",
+      minimumDate: dayjs().startOf("day").toDate(),
+      onChange: (_event, selected) => selected && setSpecificDate(selected),
+    });
+  };
+
+  const openAndroidPrepareTimePicker = () => {
+    DateTimePickerAndroid.open({
+      value: prepareAt,
+      mode: "time",
+      onChange: (_event, selected) => selected && setPrepareAt(selected),
     });
   };
 
@@ -256,6 +301,41 @@ export default function Trigger() {
     router.back();
   };
 
+  const handleSaveSpecificDay = async () => {
+    const scheduledDate = localDateKey(specificDate);
+    if (scheduledDate < localDateKey(new Date())) {
+      flash("Pick today or a future day");
+      return;
+    }
+    const prepareTime = prepareAtEnabled
+      ? `${String(prepareAt.getHours()).padStart(2, "0")}:${String(
+          prepareAt.getMinutes(),
+        ).padStart(2, "0")}`
+      : null;
+
+    if (item?.trigger.type === "time") {
+      await cancel(item.trigger.config?.notificationId);
+    }
+    const result = saveOneTimePlan({
+      name: displayName,
+      scheduledDate,
+      prepareTime,
+      planId: plan?.id,
+      removeItemId: item?.id,
+    });
+    if (result.status !== "ok") {
+      flash("Couldn't save this day");
+      return;
+    }
+    router.back();
+  };
+
+  const handleDeletePlan = () => {
+    if (!plan) return;
+    deleteOneTimePlan(plan.id);
+    router.back();
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
       <View style={styles.header}>
@@ -291,6 +371,13 @@ export default function Trigger() {
             label="At a time"
             selected={type_ === "time"}
             onPress={() => setType("time")}
+          />
+          <View style={styles.divider} />
+          <TriggerRow
+            testID="trigger-specific-day"
+            label="Specific day"
+            selected={type_ === "specificDay"}
+            onPress={() => setType("specificDay")}
           />
           <View style={styles.divider} />
           <TriggerRow
@@ -406,6 +493,80 @@ export default function Trigger() {
             />
           </View>
         ) : null}
+
+        {type_ === "specificDay" ? (
+          <View testID="trigger-specific-day-state" style={styles.section}>
+            <Text style={styles.whereLabel}>Day</Text>
+            {Platform.OS === "ios" ? (
+              <DateTimePicker
+                testID="specific-day-picker"
+                value={specificDate}
+                mode="date"
+                display="compact"
+                minimumDate={dayjs().startOf("day").toDate()}
+                onChange={(_event, selected) => selected && setSpecificDate(selected)}
+              />
+            ) : (
+              <Pressable
+                testID="open-specific-day-picker"
+                onPress={openAndroidSpecificDatePicker}
+                style={({ pressed }) => [styles.dateRow, pressed && styles.pressed]}
+              >
+                <Text style={styles.dateRowLabel}>
+                  {dayjs(specificDate).format("ddd, MMM D, YYYY")}
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.disabled} />
+              </Pressable>
+            )}
+
+            <View style={styles.prepareToggleRow}>
+              <View style={styles.locationInfo}>
+                <Text style={styles.dateRowLabel}>Prepare at</Text>
+                <Text style={styles.locationValue}>Optional</Text>
+              </View>
+              <Switch
+                testID="prepare-at-toggle"
+                value={prepareAtEnabled}
+                onValueChange={setPrepareAtEnabled}
+                trackColor={{ false: colors.border, true: colors.accent }}
+              />
+            </View>
+
+            {prepareAtEnabled ? (
+              Platform.OS === "ios" ? (
+                <DateTimePicker
+                  testID="prepare-at-picker"
+                  value={prepareAt}
+                  mode="time"
+                  display="compact"
+                  onChange={(_event, selected) => selected && setPrepareAt(selected)}
+                />
+              ) : (
+                <Pressable
+                  testID="open-prepare-at-picker"
+                  onPress={openAndroidPrepareTimePicker}
+                  style={({ pressed }) => [styles.dateRow, pressed && styles.pressed]}
+                >
+                  <Text style={styles.dateRowLabel}>{dayjs(prepareAt).format("h:mm A")}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.disabled} />
+                </Pressable>
+              )
+            ) : (
+              <Text style={styles.preview}>Activates at the start of the selected day.</Text>
+            )}
+
+            {plan ? (
+              <View style={styles.removeRow}>
+                <TextButton
+                  testID="delete-one-time-plan"
+                  title="Remove planned item"
+                  color="#EF4444"
+                  onPress={handleDeletePlan}
+                />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
 
       {type_ === "time" ? (
@@ -415,6 +576,17 @@ export default function Trigger() {
             title="Set reminder"
             onPress={handleSetReminder}
             disabled={!isFutureChoice}
+            loading={saving}
+          />
+        </View>
+      ) : null}
+
+      {type_ === "specificDay" ? (
+        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
+          <PrimaryButton
+            testID="save-specific-day"
+            title={plan ? "Save changes" : "Plan item"}
+            onPress={handleSaveSpecificDay}
             loading={saving}
           />
         </View>
@@ -631,5 +803,12 @@ const styles = StyleSheet.create({
   removeRow: {
     marginTop: spacing.md,
     alignItems: "flex-start",
+  },
+  prepareToggleRow: {
+    minHeight: 60,
+    marginTop: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
 });

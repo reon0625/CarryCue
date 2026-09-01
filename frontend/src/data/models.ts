@@ -3,7 +3,7 @@
 // device. Bump SCHEMA_VERSION and extend `repository.ts`'s migration logic
 // whenever this shape changes.
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------------------
 // Trigger — when a Carry item should remind the user.
@@ -31,7 +31,12 @@ export type Trigger = {
 
 // Where a Carry item came from — powers analytics-free heuristics like
 // Frequently Used, without needing AI.
-export type ItemSource = "quickAdd" | "routine" | "frequentlyUsed" | "forgotSomething";
+export type ItemSource =
+  | "quickAdd"
+  | "routine"
+  | "oneTimePlan"
+  | "frequentlyUsed"
+  | "forgotSomething";
 
 export type CarryItem = {
   id: string;
@@ -79,6 +84,23 @@ export type Routine = {
   updatedAt: string;
 };
 
+// A device-local, non-recurring preparation plan. It stays outside `items`
+// until its selected local date/time is due, so pending plans do not consume
+// an active departure slot.
+export type OneTimePlanStatus = "pending" | "consumed" | "expired";
+
+export type OneTimePlan = {
+  id: string;
+  name: string;
+  scheduledDate: string; // local calendar date, "YYYY-MM-DD"
+  prepareTime: string | null; // optional local 24-hour "HH:mm"; null = start of day
+  status: OneTimePlanStatus;
+  consumedAt: string | null;
+  expiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // One record per normalized item name. Powers the deterministic Frequently
 // Used ranking — no AI involved.
 export type UsageStat = {
@@ -117,6 +139,7 @@ export type AppState = {
   schemaVersion: number;
   items: CarryItem[];
   routines: Routine[];
+  oneTimePlans: OneTimePlan[];
   usageStats: UsageStats;
   departure: {
     status: "home" | "departed";
