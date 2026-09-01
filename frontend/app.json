@@ -14,7 +14,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Detect when you leave home to trigger reminders.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "CarryCue needs Always location access to remind you when you leave home, even when the app is closed.",
-        "NSLocationAlwaysUsageDescription": "CarryCue reminds you about items when you leave home — this requires Always location access."
+        "NSLocationAlwaysUsageDescription": "CarryCue reminds you about items when you leave home — this requires Always location access.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -23,7 +24,14 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.carrypreview.rbhkko"
+      "package": "com.emergent.carrypreview.rbhkko",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -62,6 +70,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "427d3487-eea5-41cd-8d0c-9ac0e2cb0670"
+      }
     }
   }
 }
