@@ -34,6 +34,7 @@ import {
   readLinkDiagnostics,
 } from "@/src/services/linkHandling";
 import { TextButton } from "@/src/components/TextButton";
+import { useRevenueCat } from "@/src/services/revenueCat";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 
@@ -99,6 +100,7 @@ export default function Settings() {
     entitlement, setEntitlementDev, resetAllDataDev, setNotificationsEnabled,
     locations, items, setHomeLocation, clearHomeLocation,
   } = useStore();
+  const { busy: purchasesBusy, presentPaywall, restorePurchases } = useRevenueCat();
 
   // Derived home-location state
   const home = locations.find((l) => l.isDefault) ?? locations[0];
@@ -130,6 +132,28 @@ export default function Settings() {
     if (tier === entitlement) return;
     setEntitlementDev(tier);
     flash(`Switched to ${tier} (dev)`);
+  };
+
+  const handlePresentPaywall = async () => {
+    if (purchasesBusy || entitlement === "PRO") return;
+    const result = await presentPaywall();
+    if (result.status === "purchased" || result.status === "restored") {
+      flash("CarryCue Pro unlocked");
+    } else if (result.status === "error" || result.status === "unavailable") {
+      flash("Purchases are temporarily unavailable");
+    }
+  };
+
+  const handleRestorePurchases = async () => {
+    if (purchasesBusy) return;
+    const result = await restorePurchases();
+    if (result.status === "restored" || result.status === "already-premium") {
+      flash("CarryCue Pro restored");
+    } else if (result.status === "no-active-purchase") {
+      flash("No active purchase found");
+    } else if (result.status === "error" || result.status === "unavailable") {
+      flash("Could not restore purchases");
+    }
   };
 
   // Dev-only: pure diagnostics check — no scheduling.
@@ -340,6 +364,21 @@ export default function Settings() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.group}>
+          <Row
+            testID="settings-carrycue-pro"
+            label="CarryCue Pro"
+            subtitle={entitlement === "PRO" ? "Active" : "Free plan"}
+            onPress={entitlement === "FREE" ? handlePresentPaywall : undefined}
+          />
+          <View style={styles.sep} />
+          <Row
+            testID="settings-restore-purchases"
+            label={purchasesBusy ? "Checking purchases…" : "Restore purchases"}
+            onPress={handleRestorePurchases}
+          />
+        </View>
+
         <View style={styles.group}>
           <Row
             testID="settings-home-location"

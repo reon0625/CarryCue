@@ -120,6 +120,7 @@ type StoreValue = {
   // also no-op internally as a second safety net so they can never surface
   // in a production build even if something calls them directly.
   setEntitlementDev: (tier: EntitlementTier) => void;
+  setEntitlementFromPurchases: (tier: EntitlementTier) => void;
   resetAllDataDev: () => void;
 };
 
@@ -668,6 +669,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setState((s) => (s ? { ...s, settings: { ...s.settings, entitlement: tier } } : s));
   }, []);
 
+  // RevenueCat is the production authority for this persisted projection.
+  // Updating only the tier preserves every local item, routine, plan, and
+  // setting while existing limit checks react immediately.
+  const setEntitlementFromPurchases = useCallback((tier: EntitlementTier) => {
+    setState((s) => {
+      if (!s || s.settings.entitlement === tier) return s;
+      const next = { ...s, settings: { ...s.settings, entitlement: tier } };
+      stateRef.current = next;
+      return next;
+    });
+  }, []);
+
   const resetAllDataDev = useCallback(() => {
     if (!__DEV__) return;
     wipeAllData().then(setState);
@@ -714,6 +727,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setHomeLocation,
       clearHomeLocation,
       setEntitlementDev,
+      setEntitlementFromPurchases,
       resetAllDataDev,
     }),
     [
@@ -743,6 +757,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setHomeLocation,
       clearHomeLocation,
       setEntitlementDev,
+      setEntitlementFromPurchases,
       resetAllDataDev,
     ],
   );

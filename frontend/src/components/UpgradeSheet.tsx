@@ -1,29 +1,37 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 
 import { BottomSheet } from "@/src/components/BottomSheet";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { TextButton } from "@/src/components/TextButton";
 import { UPGRADE_COPY, UpgradeReason } from "@/src/data/limits";
+import { useRevenueCat } from "@/src/services/revenueCat";
 import { colors, font, spacing, type } from "@/src/theme";
 
-// Mock paywall entry point — CarryCue Free hit a Pro limit. No purchases or
-// RevenueCat here yet; "Upgrade to Pro" is a placeholder for the real
-// paywall that will replace this in a later step.
 export function UpgradeSheet({
   visible,
   reason,
   onClose,
-  onUpgrade,
   testID = "upgrade-sheet",
 }: {
   visible: boolean;
   reason: UpgradeReason;
   onClose: () => void;
-  onUpgrade?: () => void;
   testID?: string;
 }) {
   const copy = UPGRADE_COPY[reason];
+  const { busy, presentPaywall } = useRevenueCat();
+
+  const handleUpgrade = async () => {
+    // Let the explanatory sheet finish closing before RevenueCat presents its
+    // native, remotely configured paywall.
+    onClose();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const result = await presentPaywall();
+    if (result.status === "error" || result.status === "unavailable") {
+      Alert.alert("Purchases unavailable", result.message);
+    }
+  };
 
   return (
     <BottomSheet visible={visible} onClose={onClose} testID={testID}>
@@ -33,7 +41,8 @@ export function UpgradeSheet({
         <View style={styles.primary}>
           <PrimaryButton
             title="Upgrade to Pro"
-            onPress={onUpgrade ?? onClose}
+            onPress={handleUpgrade}
+            loading={busy}
             testID={`${testID}-upgrade`}
           />
         </View>

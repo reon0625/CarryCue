@@ -16,6 +16,7 @@ import { addResponseListener, ensureAndroidChannel, getLaunchResponse, registerF
 // Must come AFTER the notification handler registration above, but before
 // any component mounts.
 import { healGeofenceOnStartup } from "@/src/services/geofencing";
+import { RevenueCatProvider } from "@/src/services/revenueCat";
 import { StoreProvider, useStore } from "@/src/state/store";
 import { colors } from "@/src/theme";
 
@@ -94,32 +95,34 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <KeyboardProvider>
           <StoreProvider>
-            <GeofenceHealer />
-            <StatusBar style="dark" />
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.background },
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="onboarding" />
-              <Stack.Screen name="home" />
-              <Stack.Screen name="settings" />
-              <Stack.Screen name="routines/index" />
-              <Stack.Screen name="routines/[id]" />
-              <Stack.Screen
-                name="trigger"
-                options={{ presentation: "modal" }}
-              />
-              <Stack.Screen
-                name="forgot"
-                options={{ presentation: "modal" }}
-              />
-              <Stack.Screen name="shortcuts" />
-              {/* add.tsx handles carrycue://add deep links — no animation so it's invisible */}
-              <Stack.Screen name="add" options={{ animation: "none" }} />
-            </Stack>
+            <RevenueCatProvider>
+              <GeofenceHealer />
+              <StatusBar style="dark" />
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.background },
+                }}
+              >
+                <Stack.Screen name="index" />
+                <Stack.Screen name="onboarding" />
+                <Stack.Screen name="home" />
+                <Stack.Screen name="settings" />
+                <Stack.Screen name="routines/index" />
+                <Stack.Screen name="routines/[id]" />
+                <Stack.Screen
+                  name="trigger"
+                  options={{ presentation: "modal" }}
+                />
+                <Stack.Screen
+                  name="forgot"
+                  options={{ presentation: "modal" }}
+                />
+                <Stack.Screen name="shortcuts" />
+                {/* add.tsx handles carrycue://add deep links — no animation so it's invisible */}
+                <Stack.Screen name="add" options={{ animation: "none" }} />
+              </Stack>
+            </RevenueCatProvider>
           </StoreProvider>
         </KeyboardProvider>
       </SafeAreaProvider>
