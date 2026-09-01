@@ -62,7 +62,10 @@ function NativeBottomSheet({ visible, onClose, children, testID }: SheetProps) {
 
   const panelStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: (1 - progress.value) * OFFSCREEN }],
-    marginBottom: kb.value,
+    // The Reanimated keyboard height is negative on iOS. Negating it keeps
+    // the panel immediately above the keyboard instead of moving behind it.
+    // Android retains its existing resize-mode behavior.
+    marginBottom: Platform.OS === "ios" ? -kb.value : kb.value,
   }));
 
   if (!mounted) return null;

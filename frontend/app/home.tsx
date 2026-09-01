@@ -43,7 +43,6 @@ export default function Home() {
     items,
     oneTimePlans,
     frequentlyUsed,
-    leaveTime,
     toggleItem,
     addItem,
     removeItem,
@@ -157,7 +156,6 @@ export default function Home() {
               </View>
             ) : (
               <View style={styles.context}>
-                <Text style={styles.contextTitle}>Leaving around {leaveTime}</Text>
                 <Text style={styles.contextSub}>{remaining} left</Text>
               </View>
             )}
@@ -313,11 +311,6 @@ const styles = StyleSheet.create({
   context: {
     marginTop: spacing.sm,
     marginBottom: spacing.xs,
-  },
-  contextTitle: {
-    fontSize: type.contextTitle,
-    fontWeight: font.semibold,
-    color: colors.textPrimary,
   },
   contextSub: {
     fontSize: type.secondary,

@@ -215,6 +215,7 @@ export default function RoutineDetail() {
               <Text style={styles.scheduleTitle}>Prepare automatically</Text>
               <Switch
                 testID="routine-schedule-toggle"
+                style={styles.scheduleSwitch}
                 value={routine.schedule.enabled}
                 onValueChange={(enabled) =>
                   setRoutineSchedule(routine.id, { enabled })
@@ -435,6 +436,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  scheduleSwitch: {
+    transform: [{ translateY: Platform.OS === "ios" ? 15 : 0 }],
   },
   scheduleTitle: {
     fontSize: type.secondary + 1,

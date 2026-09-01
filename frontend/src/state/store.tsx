@@ -63,7 +63,6 @@ export type SaveOneTimePlanResult =
 type StoreValue = {
   hydrated: boolean;
   hasLaunched: boolean;
-  leaveTime: string;
   items: CarryItem[];
   routines: Routine[];
   oneTimePlans: OneTimePlan[];
@@ -683,7 +682,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       hydrated: state !== null,
       hasLaunched: state?.settings.onboardingCompleted ?? false,
-      leaveTime: state?.settings.leaveTime ?? "8:30",
       items: state?.items ?? [],
       routines: state?.routines ?? [],
       oneTimePlans: state?.oneTimePlans ?? [],
