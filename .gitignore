@@ -80,9 +80,17 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
+.gitconfig
 .env
 .env.*
 *.env
 credentials.json
 *.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+service-account*.json
 .credentials
