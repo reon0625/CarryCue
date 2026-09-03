@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { Href, useRouter } from "expo-router";
 import React, { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,6 +11,7 @@ import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { Toast } from "@/src/components/Toast";
+import { PRIVACY_POLICY_URL } from "@/src/data/externalLinks";
 import {
   getNotificationDiagnostics,
   isNotificationsAvailable,
@@ -122,6 +123,12 @@ export default function Settings() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(""), 1600);
   }, []);
+
+  const openPrivacyPolicy = useCallback(() => {
+    Linking.openURL(PRIVACY_POLICY_URL).catch(() => {
+      flash("Could not open Privacy Policy");
+    });
+  }, [flash]);
 
   const handleReset = () => {
     resetAllDataDev();
@@ -401,9 +408,17 @@ export default function Settings() {
           <View style={styles.sep} />
           <Row testID="settings-quick-add" label="Quick Add shortcuts" onPress={() => router.push("/shortcuts")} />
           <View style={styles.sep} />
-          <Row testID="settings-privacy" label="Privacy" />
+          <Row
+            testID="settings-privacy"
+            label="Privacy"
+            onPress={openPrivacyPolicy}
+          />
           <View style={styles.sep} />
-          <Row testID="settings-about" label="About" />
+          <Row
+            testID="settings-about"
+            label="About"
+            onPress={() => router.push("/about" as Href)}
+          />
         </View>
 
         <View style={styles.group}>

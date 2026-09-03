@@ -86,7 +86,7 @@ export function QuickAddSheet({
   // Step 3A: this item is NOT persisted here. It stays a draft — carried
   // as route params — until Trigger Setup's reminder is actually confirmed,
   // so nothing is saved if the user just backs out of that screen.
-  const chooseTimeOrPlace = () => {
+  const chooseTimeOrDay = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
     onClose();
@@ -148,9 +148,9 @@ export function QuickAddSheet({
             <View style={styles.divider} />
             <TriggerRow
               testID="remind-choose"
-              label="Choose time, day or place"
+              label="Choose time or day"
               selected={remind === "choose"}
-              onPress={chooseTimeOrPlace}
+              onPress={chooseTimeOrDay}
             />
           </View>
         </View>

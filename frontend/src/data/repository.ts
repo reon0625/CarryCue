@@ -172,6 +172,25 @@ function normalizeRoutineSchedule(
   };
 }
 
+// Older releases exposed an "arrivingPlace" trigger that was never backed by
+// an arrival geofence. Keep the CarryItem itself intact and safely fall it
+// back to the supported departure trigger when legacy state is loaded.
+function normalizeItemTrigger(item: CarryItem): CarryItem {
+  const persistedType = (
+    item.trigger as { type?: string } | null | undefined
+  )?.type;
+  if (persistedType === "leavingHome" || persistedType === "time") {
+    return item;
+  }
+  return {
+    ...item,
+    trigger: {
+      type: "leavingHome",
+      ...(item.trigger?.config ? { config: item.trigger.config } : {}),
+    },
+  };
+}
+
 function normalizeOneTimePlan(plan: Partial<OneTimePlan>): OneTimePlan | null {
   const prepareTime = plan.prepareTime ?? null;
   if (
@@ -212,7 +231,7 @@ export function normalizePersistedState(state: Partial<AppState>): AppState {
   const fresh = buildInitialState();
   return {
     schemaVersion: SCHEMA_VERSION,
-    items: dedupeByName(state.items ?? []),
+    items: dedupeByName(state.items ?? []).map(normalizeItemTrigger),
     routines: (state.routines ?? []).map((r) => ({
       ...r,
       isSeed: r.isSeed ?? false,

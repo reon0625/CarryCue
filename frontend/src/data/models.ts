@@ -7,18 +7,19 @@ export const SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------------------
 // Trigger — when a Carry item should remind the user.
-// Step 3A: `time` is wired to a REAL scheduled local notification (see
-// src/services/notifications.ts). `leavingHome` / `arrivingPlace` remain
-// mock/config-only — real geofencing lands in Step 3B.
+// `time` is wired to a scheduled local notification and `leavingHome` is
+// backed by the Home geofence.
 // ---------------------------------------------------------------------------
-export type TriggerType = "leavingHome" | "time" | "arrivingPlace";
+export type TriggerType = "leavingHome" | "time";
 
 export type Trigger = {
   type: TriggerType;
   config?: {
     // ISO 8601 instant the "time" trigger is/was scheduled for.
     time?: string;
-    // Mock/config-only — not wired to real geofencing yet (Step 3B).
+    // Legacy-only arrival metadata. It is retained during normalization so
+    // upgrading does not discard persisted user data, but no active trigger
+    // or UI reads it.
     placeName?: string;
     // Identifier returned by expo-notifications for the currently scheduled
     // OS notification backing a "time" trigger. Undefined means either no

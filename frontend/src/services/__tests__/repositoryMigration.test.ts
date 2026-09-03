@@ -99,4 +99,45 @@ describe("STEP 6/6.5 persisted-state migration", () => {
       }),
     ]);
   });
+
+  test("legacy arriving-place items are preserved and fall back to Leaving home", () => {
+    const persistedAt = "2026-09-01T00:00:00.000Z";
+    const legacy = {
+      schemaVersion: 5,
+      items: [
+        {
+          id: "legacy-arrival-item",
+          name: "Gym shoes",
+          completed: false,
+          createdAt: persistedAt,
+          updatedAt: persistedAt,
+          trigger: {
+            type: "arrivingPlace",
+            config: { placeName: "Gym" },
+          },
+          source: "quickAdd",
+        },
+      ],
+      routines: [],
+      oneTimePlans: [],
+      usageStats: {},
+      departure: { status: "home", departedAt: null },
+    } as unknown as Partial<AppState>;
+
+    const migrated = normalizePersistedState(legacy);
+
+    expect(migrated.items).toHaveLength(1);
+    expect(migrated.items[0]).toEqual({
+      id: "legacy-arrival-item",
+      name: "Gym shoes",
+      completed: false,
+      createdAt: persistedAt,
+      updatedAt: persistedAt,
+      trigger: {
+        type: "leavingHome",
+        config: { placeName: "Gym" },
+      },
+      source: "quickAdd",
+    });
+  });
 });

@@ -11,7 +11,6 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,7 +35,7 @@ import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 import { formatReminderLabel } from "@/src/utils/formatReminder";
 
-type TriggerType = "leaving" | "time" | "specificDay" | "arriving";
+type TriggerType = "leaving" | "time" | "specificDay";
 type TimeChoice = "Later today" | "Tomorrow morning" | "Choose date & time";
 
 export default function Trigger() {
@@ -50,7 +49,6 @@ export default function Trigger() {
   }>();
   const {
     locations,
-    addLocation,
     items,
     oneTimePlans,
     addItemWithTrigger,
@@ -71,7 +69,6 @@ export default function Trigger() {
 
   const [type_, setType] = useState<TriggerType>(() => {
     if (item?.trigger.type === "time") return "time";
-    if (item?.trigger.type === "arrivingPlace") return "arriving";
     if (plan) return "specificDay";
     return "leaving";
   });
@@ -83,7 +80,6 @@ export default function Trigger() {
       ? new Date(item.trigger.config.time)
       : dayjs().add(3, "hour").toDate(),
   );
-  const [place, setPlace] = useState(() => item?.trigger.config?.placeName ?? "");
   const [specificDate, setSpecificDate] = useState<Date>(() =>
     plan
       ? dayjs(`${plan.scheduledDate}T12:00:00`).toDate()
@@ -96,8 +92,6 @@ export default function Trigger() {
     const [hour, minute] = (plan?.prepareTime ?? "08:00").split(":").map(Number);
     return dayjs().hour(hour).minute(minute).second(0).millisecond(0).toDate();
   });
-  const [locationsOpen, setLocationsOpen] = useState(false);
-  const [upgradeVisible, setUpgradeVisible] = useState(false);
   const [itemLimitVisible, setItemLimitVisible] = useState(false);
   const [explainVisible, setExplainVisible] = useState(false);
   const [blockedVisible, setBlockedVisible] = useState(false);
@@ -115,15 +109,6 @@ export default function Trigger() {
   const home = locations[0];
   const homeIsSet = home?.latitude != null && home?.longitude != null;
   const hasExistingTimeTrigger = item?.trigger.type === "time";
-
-  const handleAddLocation = () => {
-    const nextName = `Location ${locations.length + 1}`;
-    const result = addLocation(nextName, "Set address");
-    if (result.status === "limit") {
-      setLocationsOpen(false);
-      setUpgradeVisible(true);
-    }
-  };
 
   const resolveDate = (): Date => {
     if (timeChoice === "Later today") return dayjs().add(3, "hour").toDate();
@@ -379,13 +364,6 @@ export default function Trigger() {
             selected={type_ === "specificDay"}
             onPress={() => setType("specificDay")}
           />
-          <View style={styles.divider} />
-          <TriggerRow
-            testID="trigger-arriving"
-            label="Arriving somewhere"
-            selected={type_ === "arriving"}
-            onPress={() => setType("arriving")}
-          />
         </View>
 
         {type_ === "leaving" ? (
@@ -477,20 +455,6 @@ export default function Trigger() {
                 />
               </View>
             ) : null}
-          </View>
-        ) : null}
-
-        {type_ === "arriving" ? (
-          <View testID="trigger-arriving-state" style={styles.section}>
-            <Text style={styles.whereLabel}>Where?</Text>
-            <TextInput
-              testID="place-search"
-              value={place}
-              onChangeText={setPlace}
-              placeholder="Search place"
-              placeholderTextColor={colors.disabled}
-              style={styles.search}
-            />
           </View>
         ) : null}
 
@@ -594,28 +558,6 @@ export default function Trigger() {
 
       <Toast message={toast} visible={!!toast} testID="trigger-toast" />
 
-      <BottomSheet
-        visible={locationsOpen}
-        onClose={() => setLocationsOpen(false)}
-        testID="locations-sheet"
-      >
-        <Text style={styles.whereLabel}>Locations</Text>
-        {locations.map((loc) => (
-          <View key={loc.id} style={styles.locationListRow}>
-            <Text style={styles.locationListName}>{loc.name}</Text>
-            <Text style={styles.locationListAddress}>{loc.address}</Text>
-          </View>
-        ))}
-        <View style={styles.addLocationButton}>
-          <TextButton
-            testID="add-location-button"
-            title="Add location"
-            icon="add"
-            onPress={handleAddLocation}
-          />
-        </View>
-      </BottomSheet>
-
       <BottomSheet visible={explainVisible} onClose={() => setExplainVisible(false)}>
         <PermissionExplanation
           testID="notification-permission"
@@ -640,12 +582,6 @@ export default function Trigger() {
           onDismiss={() => setBlockedVisible(false)}
         />
       </BottomSheet>
-
-      <UpgradeSheet
-        visible={upgradeVisible}
-        reason="locations"
-        onClose={() => setUpgradeVisible(false)}
-      />
 
       <UpgradeSheet
         visible={itemLimitVisible}
@@ -733,34 +669,6 @@ const styles = StyleSheet.create({
     fontWeight: font.semibold,
     color: colors.textPrimary,
     marginBottom: spacing.md,
-  },
-  search: {
-    height: 48,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    fontSize: type.checklistItem,
-    color: colors.textPrimary,
-  },
-  locationListRow: {
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  locationListName: {
-    fontSize: type.checklistItem,
-    fontWeight: font.medium,
-    color: colors.textPrimary,
-  },
-  locationListAddress: {
-    fontSize: type.secondary,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  addLocationButton: {
-    marginTop: spacing.sm,
   },
   footer: {
     paddingHorizontal: spacing.lg,
