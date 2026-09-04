@@ -49,6 +49,7 @@ export default function Shortcuts() {
   // router.navigate goes back to the existing Home entry in the stack
   // (pops Settings + Shortcuts on top of it).
   const handleTestQuickAdd = async () => {
+    if (!__DEV__) return;
     await storePendingQuickAdd(null);
     router.navigate("/home");
   };
@@ -129,7 +130,7 @@ export default function Shortcuts() {
                 text="Replace a bottom control, choose Shortcut, then select ‘CarryCue Quick Add’."
               />
               <Text style={styles.sectionNote}>
-                Available on supported iOS versions. This uses Apple’s Shortcuts control; a native CarryCue widget is not included yet.
+                Available on supported iOS versions through Apple’s Shortcuts control.
               </Text>
             </View>
           </>
@@ -139,11 +140,6 @@ export default function Shortcuts() {
             <Step
               icon="apps-outline"
               text="Long-press the CarryCue icon on your launcher for a Quick Add shortcut"
-            />
-            <RowDivider />
-            <Step
-              icon="grid-outline"
-              text="Quick Settings tile and widget coming in a future update"
             />
             <Text style={styles.sectionNote}>
               Use carrycue://add in any app that supports URL schemes.
@@ -157,17 +153,19 @@ export default function Shortcuts() {
           <UrlChip url="carrycue://add?text=Passport" />
         </View>
 
-        {/* ── Test button ────────────────────────────────────────────────── */}
-        <View style={styles.testBlock}>
-          <PrimaryButton
-            title="Test Quick Add"
-            testID="test-quick-add-button"
-            onPress={handleTestQuickAdd}
-          />
-          <Text style={styles.testHint}>
-            Opens Quick Add exactly as a shortcut would.
-          </Text>
-        </View>
+        {/* ── Development-only shortcut test ─────────────────────────────── */}
+        {__DEV__ ? (
+          <View style={styles.testBlock}>
+            <PrimaryButton
+              title="Test Quick Add"
+              testID="test-quick-add-button"
+              onPress={handleTestQuickAdd}
+            />
+            <Text style={styles.testHint}>
+              Opens Quick Add exactly as a shortcut would.
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );

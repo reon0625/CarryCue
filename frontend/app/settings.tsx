@@ -282,9 +282,9 @@ export default function Settings() {
         // for automatic departure detection.
         setLocationSubState("foreground-only");
       }
-    } catch (e: unknown) {
+    } catch {
       setLocationSubState("explain");
-      flash(`Could not get location: ${e instanceof Error ? e.message : String(e)}`);
+      flash("Could not get your location. Please try again.");
     }
   }, [setHomeLocation, flash]);
 
@@ -421,14 +421,16 @@ export default function Settings() {
           />
         </View>
 
-        <View style={styles.group}>
-          <Row
-            testID="settings-demo-forgot"
-            label="Demo: Forgot Something"
-            accent
-            onPress={() => router.push("/forgot")}
-          />
-        </View>
+        {__DEV__ ? (
+          <View style={styles.group}>
+            <Row
+              testID="settings-demo-forgot"
+              label="Demo: Forgot Something"
+              accent
+              onPress={() => router.push("/forgot")}
+            />
+          </View>
+        ) : null}
 
         {__DEV__ ? (
           <View style={styles.group} testID="dev-tools-section">
