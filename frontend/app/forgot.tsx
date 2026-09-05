@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { TextButton } from "@/src/components/TextButton";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
+import { MAX_ITEM_NAME_LENGTH } from "@/src/data/itemNames";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -39,6 +40,7 @@ export default function Forgot() {
     const trimmed = text.trim();
     if (!trimmed) return;
     const result = recordForgotten(trimmed);
+    if (result.status === "invalid") return;
     setSavedName(trimmed);
     inputRef.current?.blur();
     if (result.status === "limit") {
@@ -122,6 +124,7 @@ export default function Forgot() {
               <TextInput
                 ref={inputRef}
                 testID="forgot-input"
+                maxLength={MAX_ITEM_NAME_LENGTH}
                 value={text}
                 onChangeText={setText}
                 placeholder="Student ID"

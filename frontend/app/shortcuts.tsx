@@ -150,7 +150,6 @@ export default function Shortcuts() {
         {/* ── URL reference chips ────────────────────────────────────────── */}
         <View style={styles.urlBlock}>
           <UrlChip url="carrycue://add" />
-          <UrlChip url="carrycue://add?text=Passport" />
         </View>
 
         {/* ── Development-only shortcut test ─────────────────────────────── */}

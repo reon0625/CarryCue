@@ -140,4 +140,29 @@ describe("STEP 6/6.5 persisted-state migration", () => {
       source: "quickAdd",
     });
   });
+
+  test("existing item names longer than the new-entry limit remain unchanged", () => {
+    const longExistingName = "Existing emergency umbrella";
+    const persistedAt = "2026-09-01T00:00:00.000Z";
+    const migrated = normalizePersistedState({
+      schemaVersion: 5,
+      items: [
+        {
+          id: "existing-long-item",
+          name: longExistingName,
+          completed: false,
+          createdAt: persistedAt,
+          updatedAt: persistedAt,
+          trigger: { type: "leavingHome" },
+          source: "quickAdd",
+        },
+      ],
+      routines: [],
+      oneTimePlans: [],
+      usageStats: {},
+      departure: { status: "home", departedAt: null },
+    });
+
+    expect(migrated.items[0].name).toBe(longExistingName);
+  });
 });

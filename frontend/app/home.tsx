@@ -104,6 +104,8 @@ export default function Home() {
     (name: string) => {
       const result = addItem(name, "frequentlyUsed");
       if (result.status === "duplicate") flash("Already on your list");
+      else if (result.status === "invalid")
+        flash("Item names can be up to 15 characters");
       else if (result.status === "limit") setUpgradeVisible(true);
     },
     [addItem, flash],

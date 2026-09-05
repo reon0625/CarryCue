@@ -210,6 +210,11 @@ export default function Trigger() {
           flash("Already on your list");
           return;
         }
+        if (result.status === "invalid") {
+          await cancel(notificationId);
+          flash("Item names can be up to 15 characters");
+          return;
+        }
         if (result.status === "limit") {
           await cancel(notificationId);
           setItemLimitVisible(true);

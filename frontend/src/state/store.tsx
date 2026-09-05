@@ -11,6 +11,7 @@ import { AppState as NativeAppState } from "react-native";
 
 import { uid } from "@/src/data/id";
 import { computeFrequentlyUsed } from "@/src/data/frequentlyUsed";
+import { normalizeNewItemName } from "@/src/data/itemNames";
 import { getLimits, Limits, UpgradeReason } from "@/src/data/limits";
 import {
   AppState,
@@ -48,6 +49,7 @@ const nowIso = () => new Date().toISOString();
 export type AddResult =
   | { status: "ok"; id: string }
   | { status: "duplicate" }
+  | { status: "invalid" }
   | { status: "limit"; reason: UpgradeReason };
 
 export type CreateRoutineResult =
@@ -204,8 +206,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const addItemWithTrigger = useCallback(
     (name: string, source: ItemSource, trigger: Trigger): AddResult => {
-      const trimmed = name.trim();
-      if (!trimmed) return { status: "duplicate" };
+      const trimmed = normalizeNewItemName(name);
+      if (!trimmed) return { status: "invalid" };
       const s = stateRef.current;
       if (!s) return { status: "duplicate" };
 
@@ -350,8 +352,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // vs saved-but-at-limit).
   const recordForgotten = useCallback(
     (name: string): AddResult => {
-      const trimmed = name.trim();
-      if (!trimmed) return { status: "duplicate" };
+      const trimmed = normalizeNewItemName(name);
+      if (!trimmed) return { status: "invalid" };
       // Always save the forgotten signal — this keeps the item eligible for
       // Suggestions even when the departure is full.
       touchUsage(trimmed, { forgotten: true });
@@ -391,7 +393,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addRoutineItem = useCallback((routineId: string, name: string) => {
-    const trimmed = name.trim();
+    const trimmed = normalizeNewItemName(name);
     if (!trimmed) return;
     setState((s) => {
       if (!s) return s;
@@ -469,7 +471,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       planId?: string;
       removeItemId?: string;
     }): SaveOneTimePlanResult => {
-      const trimmed = input.name.trim();
+      const existingName = Boolean(input.planId || input.removeItemId);
+      const trimmed = existingName
+        ? input.name.trim()
+        : normalizeNewItemName(input.name);
       if (
         !trimmed ||
         !isValidLocalDateKey(input.scheduledDate) ||

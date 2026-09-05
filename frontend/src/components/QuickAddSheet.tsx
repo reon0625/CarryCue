@@ -13,6 +13,7 @@ import { Chip } from "@/src/components/Chip";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { SectionLabel } from "@/src/components/SectionLabel";
 import { TriggerRow } from "@/src/components/TriggerRow";
+import { MAX_ITEM_NAME_LENGTH } from "@/src/data/itemNames";
 import { useStore } from "@/src/state/store";
 import { colors, font, spacing, type } from "@/src/theme";
 
@@ -42,7 +43,7 @@ export function QuickAddSheet({
   useEffect(() => {
     if (visible) {
       // Pre-populate from deep-link or shortcut; fall back to empty.
-      setText(prefillText ?? "");
+      setText((prefillText ?? "").slice(0, MAX_ITEM_NAME_LENGTH));
       setRemind("leaving");
       setDupMsg("");
       // Focus after the open animation so the native keyboard reliably
@@ -61,6 +62,10 @@ export function QuickAddSheet({
       setDupMsg("Already on your list");
       return;
     }
+    if (result.status === "invalid") {
+      setDupMsg("Item names can be up to 15 characters");
+      return;
+    }
     if (result.status === "limit") {
       onClose();
       onLimitReached?.();
@@ -73,6 +78,10 @@ export function QuickAddSheet({
     const result = addItem(name, "frequentlyUsed");
     if (result.status === "duplicate") {
       setDupMsg("Already on your list");
+      return;
+    }
+    if (result.status === "invalid") {
+      setDupMsg("Item names can be up to 15 characters");
       return;
     }
     if (result.status === "limit") {
@@ -110,6 +119,7 @@ export function QuickAddSheet({
         testID="quick-add-input"
         autoFocus
         showSoftInputOnFocus
+        maxLength={MAX_ITEM_NAME_LENGTH}
         value={text}
         onChangeText={(t) => {
           setText(t);

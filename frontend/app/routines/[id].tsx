@@ -23,6 +23,7 @@ import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { TextButton } from "@/src/components/TextButton";
 import { UpgradeSheet } from "@/src/components/UpgradeSheet";
+import { MAX_ITEM_NAME_LENGTH } from "@/src/data/itemNames";
 import { useStore } from "@/src/state/store";
 import { colors, font, radius, spacing, type } from "@/src/theme";
 
@@ -299,6 +300,7 @@ export default function RoutineDetail() {
         <TextInput
           ref={addRef}
           testID="routine-item-input"
+          maxLength={MAX_ITEM_NAME_LENGTH}
           value={itemText}
           onChangeText={setItemText}
           placeholder="Item name"
